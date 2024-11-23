@@ -825,7 +825,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 4.0;
-				PRODUCT_BUNDLE_IDENTIFIER = xyz.brilliant.argpt;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adiayyakad.NoaApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -861,7 +861,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 4.0;
-				PRODUCT_BUNDLE_IDENTIFIER = xyz.brilliant.argpt;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adiayyakad.NoaApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -883,7 +883,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = xyz.brilliant.argpttests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adiayyakad.NoaApptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -906,7 +906,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = xyz.brilliant.argpttests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adiayyakad.NoaApptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -927,7 +927,7 @@
 				DEVELOPMENT_TEAM = TWKJ9RPH32;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = xyz.brilliant.argptuitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adiayyakad.NoaAppuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -948,7 +948,7 @@
 				DEVELOPMENT_TEAM = TWKJ9RPH32;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = xyz.brilliant.argptuitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.adiayyakad.NoaAppuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
