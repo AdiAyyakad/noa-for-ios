@@ -29,7 +29,41 @@ import UIKit
 import NordicDFU
 
 class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgressDelegate {
-    // MARK: Internal State
+
+    // MARK: - Public State
+
+    @Published private(set) var isMonocleConnected = false
+    @Published private(set) var pairedMonocleID: UUID?
+
+    /// Reports nearest Monocle within the required RSSI threshold for pairing. Only updates when unpaired otherwise value may be stale.
+    @Published private(set) var nearestMonocleID: UUID?
+
+    /// Use this to enable/disable Bluetooth
+    @Published public var bluetoothEnabled = false {
+        didSet {
+            // Pass through to Bluetooth managers. We look for both Monocle and DfuTarg in case we
+            // need to resume a firmware update that was interrupted.
+            let enabled = bluetoothEnabled
+            _bluetoothQueue.async { [weak _monocleBluetooth, weak _dfuBluetooth] in
+                _monocleBluetooth?.enabled = enabled
+                _dfuBluetooth?.enabled = enabled
+            }
+        }
+    }
+
+    @Published private(set) var monocleState = MonocleState.notReady
+    @Published private(set) var updateProgressPercent: Int = 0
+
+    public var mode = ChatGPT.Mode.assistant {
+        didSet {
+            if mode != oldValue {
+                // Changed modes, clear context
+                _chatGPT.clearHistory()
+            }
+        }
+    }
+
+    // MARK: - Internal State
 
     // Bluetooth communication happens on a background thread
     private let _bluetoothQueue = DispatchQueue(label: "Bluetooth", qos: .default)
@@ -56,90 +90,6 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     private let _messages: ChatMessageStore
 
     private var _subscribers = Set<AnyCancellable>()
-
-    // Internal controller state
-    private enum State: Equatable {
-        case disconnected
-
-        // Startup sequence: raw REPL, check whether firmware and FPGA updates required and perform
-        // them. If DFU was performed and Monocle had to reset, we detect that case so that when we
-        // get to the firmware and FPGA update phase, we can compute the correct relative
-        // percentage each contributes. We pass the DFU state along in the enums themselves.
-        case enterRawREPL(didFinishDFU: Bool)
-        case waitingForRawREPL(didFinishDFU: Bool)
-        case waitingForFirmwareVersion(didFinishDFU: Bool)
-        case waitingForFPGAVersion(didFinishDFU: Bool)
-
-        // Continuation of startup sequence: check and update Monocle scripts
-        case waitingForARGPTVersion
-        case transmittingScripts(scriptTransmissionState: ScriptTransmissionState)
-
-        // Running state: Monocle app is up and able to communicate with iOS
-        case running
-
-        // Firmware update states
-        case initiateDFUAndWaitForDFUTarget(rescaleUpdatePercentage: Bool)
-        case performDFU(peripheral: CBPeripheral, rescaleUpdatePercentage: Bool)
-
-        // FPGA update states
-        case initiateFPGAUpdate(maximumDataLength: Int, rescaleUpdatePercentage: Bool)
-        case waitForFPGAErased(updateState: FPGAUpdateState)
-        case sendNextFPGAImageChunk(updateState: FPGAUpdateState)
-        case writeFPGAAndReset
-    }
-
-    private class FPGAUpdateState: Equatable {
-        /// FPGA image as Base64-encoded string
-        var image: String
-
-        /// Size of a single chunk, in Base64-encoded characters
-        var chunkSize: Int
-
-        /// Total number of chunks
-        var chunks: Int
-
-        /// Next chunk to transmit
-        var chunk: Int
-
-        /// Whether we need to rescale the update percentage because of DFU
-        let rescaleUpdatePercentage: Bool
-
-        init(maximumDataLength: Int, rescaleUpdatePercentage: Bool) {
-            image = Controller.loadFPGAImageAsBase64()
-            chunkSize = (((maximumDataLength - 45) / 3) / 4) * 4 * 3    // update string must be 45 characters!
-            chunks = image.count / chunkSize + ((image.count % chunkSize) == 0 ? 0 : 1)
-            chunk = 0
-            self.rescaleUpdatePercentage = rescaleUpdatePercentage
-            print("[Controller] FPGA update: image=\(image.count) bytes, chunkSize=\(chunkSize), chunks=\(chunks), maximumDataLength=\(maximumDataLength)")
-        }
-
-        public var entireImageTransmitted: Bool {
-            return chunk >= chunks
-        }
-
-        /// Compare whether objects are the same
-        static func == (lhs: Controller.FPGAUpdateState, rhs: Controller.FPGAUpdateState) -> Bool {
-            return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
-        }
-    }
-
-    private class ScriptTransmissionState: Equatable {
-        /// Files remaining to transmit. The first file is always transmitted next.
-        var filesToTransmit: [(name: String, content: String)] = []
-
-        init(filesToTransmit: [(name: String, content: String)]) {
-            self.filesToTransmit = filesToTransmit
-        }
-
-        public func tryDequeueNextScript() -> (name: String, content: String)? {
-            guard filesToTransmit.count > 0 else { return nil }
-            return filesToTransmit.removeFirst()
-        }
-
-        static func == (lhs: Controller.ScriptTransmissionState, rhs: Controller.ScriptTransmissionState) -> Bool {
-            return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
-        }
-    }
 
     private var _state = State.disconnected
     private var _matcher: Util.StreamingStringMatcher?
@@ -170,47 +120,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     private var _playbackFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
     private let _monocleFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false)!
 
-    // MARK: Public State
-
-    @Published private(set) var isMonocleConnected = false
-    @Published private(set) var pairedMonocleID: UUID?
-
-    /// Reports nearest Monocle within the required RSSI threshold for pairing. Only updates when unpaired otherwise value may be stale.
-    @Published private(set) var nearestMonocleID: UUID?
-
-    /// Use this to enable/disable Bluetooth
-    @Published public var bluetoothEnabled = false {
-        didSet {
-            // Pass through to Bluetooth managers. We look for both Monocle and DfuTarg in case we
-            // need to resume a firmware update that was interrupted.
-            let enabled = bluetoothEnabled
-            _bluetoothQueue.async { [weak _monocleBluetooth, weak _dfuBluetooth] in
-                _monocleBluetooth?.enabled = enabled
-                _dfuBluetooth?.enabled = enabled
-            }
-        }
-    }
-
-    public enum MonocleState {
-        case notReady           // Monocle connection not yet firmly established
-        case updatingFirmware
-        case updatingFPGA
-        case ready              // connected, finished all updates, running state
-    }
-
-    @Published private(set) var monocleState = MonocleState.notReady
-    @Published private(set) var updateProgressPercent: Int = 0
-
-    public var mode = ChatGPT.Mode.assistant {
-        didSet {
-            if mode != oldValue {
-                // Changed modes, clear context
-                _chatGPT.clearHistory()
-            }
-        }
-    }
-
-    // MARK: Public Methods
+    // MARK: - Public Methods
 
     init(settings: Settings, messages: ChatMessageStore) {
         _settings = settings
@@ -437,9 +347,40 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         _chatGPT.clearHistory()
     }
 
-    // MARK: State Transitions and Received Data Dispatch
+    // MARK: - Nordic DFU Delegates (Main Queue)
 
-    private func transitionState(to newState: State) {
+    public func logWith(_ level: LogLevel, message: String) {
+        print("[Controller] DFU: \(message)")
+    }
+
+    public func dfuStateDidChange(to state: DFUState) {
+        print("[Controller] DFU state changed to: \(state)")
+    }
+
+    public func dfuError(_ error: DFUError, didOccurWithMessage message: String) {
+        print("[Conroller] DFU error: \(message)")
+    }
+
+    public func dfuProgressDidChange(
+        for part: Int,
+        outOf totalParts: Int,
+        to progress: Int,
+        currentSpeedBytesPerSecond: Double,
+        avgSpeedBytesPerSecond: Double
+    ) {
+        print("[Controller] DFU progress: part=\(part)/\(totalParts), progress=\(progress)%")
+        if case let .performDFU(peripheral: _, rescaleUpdatePercentage: rescaleUpdatePercentage) = _state {
+            // If we need to rescale the update percentage (because an FPGA update will follow), we
+            // want to go from 0-50%, so just need to divide by 2.
+            updateProgressPercent = rescaleUpdatePercentage ? (progress / 2) : progress
+        }
+    }
+}
+
+// MARK: - State Transitions and Received Data Dispatch
+
+private extension Controller {
+    func transitionState(to newState: State) {
         // Transition!
         _state = newState
 
@@ -550,7 +491,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func handleSerialDataReceived(_ receivedValue: Data) {
+    func handleSerialDataReceived(_ receivedValue: Data) {
         let str = String(decoding: receivedValue, as: UTF8.self)
         print("[Controller] Serial data from Monocle: \(str)")
 
@@ -584,7 +525,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func handleDataReceived(_ receivedValue: Data) {
+    func handleDataReceived(_ receivedValue: Data) {
         guard receivedValue.count >= 4,
               _state == .running else {
             return
@@ -595,10 +536,12 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
         onMonocleCommand(command: command, data: receivedValue[4...])
     }
+}
 
-    // MARK: Monocle Firmware, FPGA, and Script Transmission
+// MARK: - Monocle Firmware, FPGA, and Script Transmission
 
-    private func onWaitForRawREPLState(receivedString str: String, didFinishDFU: Bool) {
+private extension Controller {
+    func onWaitForRawREPLState(receivedString str: String, didFinishDFU: Bool) {
         if _matcher == nil {
             _matcher = Util.StreamingStringMatcher(lookingFor: "raw REPL; CTRL-B to exit\r\n>")
         }
@@ -612,7 +555,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func onWaitForFirmwareVersionString(receivedString str: String, didFinishDFU: Bool) {
+    func onWaitForFirmwareVersionString(receivedString str: String, didFinishDFU: Bool) {
         _currentFirmwareVersion = nil
 
         // Sample version string:
@@ -633,7 +576,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func onWaitForFPGAVersionString(receivedString str: String, didFinishDFU: Bool) {
+    func onWaitForFPGAVersionString(receivedString str: String, didFinishDFU: Bool) {
         _currentFPGAVersion = nil
 
         // Sample version string:
@@ -654,7 +597,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func updateMonocleOrProceedToRun(didFinishDFU: Bool) {
+    func updateMonocleOrProceedToRun(didFinishDFU: Bool) {
         if _currentFirmwareVersion != _requiredFirmwareVersion {
             // First, kick off firmware update
             print("[Controller] Firmware update needed. Current version: \(_currentFirmwareVersion ?? "unknown")")
@@ -697,7 +640,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func onFPGAErased(receivedString str: String, updateState: FPGAUpdateState) {
+    func onFPGAErased(receivedString str: String, updateState: FPGAUpdateState) {
         if _matcher == nil {
             // Annoyingly, this comes across over two transfers
             _matcher = Util.StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
@@ -709,7 +652,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func transmitNextFPGAImageChunk(updateState: FPGAUpdateState) {
+    func transmitNextFPGAImageChunk(updateState: FPGAUpdateState) {
         print("[Controller] FPGA update: Sending chunk \(updateState.chunk)/\(updateState.chunks)")
 
         // Extract current chunk
@@ -741,7 +684,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func onFPGAImageChunkTransmitted(receivedString str: String, updateState: FPGAUpdateState) {
+    func onFPGAImageChunkTransmitted(receivedString str: String, updateState: FPGAUpdateState) {
         if _matcher == nil {
             _matcher = Util.StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
         }
@@ -766,7 +709,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func onWaitForVersionString(receivedString str: String) {
+    func onWaitForVersionString(receivedString str: String) {
         // Get required script files and their version from disk
         let (filesToTransmit, expectedVersion) = loadFilesForTransmission()
 
@@ -795,7 +738,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         print("[Controller] Continuing to wait for version string...")
     }
 
-    private func onScriptTransmitted(receivedString str: String, scriptTransmissionState: ScriptTransmissionState) {
+    func onScriptTransmitted(receivedString str: String, scriptTransmissionState: ScriptTransmissionState) {
         if _matcher == nil {
             _matcher = Util.StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
         }
@@ -807,43 +750,43 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func transmitRawREPLCode() {
+    func transmitRawREPLCode() {
         // ^C (kill current), ^C (again to be sure), ^A (raw REPL mode)
         send(data: Data([ 0x03, 0x03, 0x01 ]), to: _monocleBluetooth, on: Self._serialRx)
     }
 
-    private func transmitFirmwareVersionCheck() {
+    func transmitFirmwareVersionCheck() {
         // Check firmware version
         transmitPythonCommand("import device;print(device.VERSION);del(device)")
     }
 
-    private func transmitFPGAVersionCheck() {
+    func transmitFPGAVersionCheck() {
         // Check FPGA version. We use this rather than the nicer fpga.version() interface for
         // compatibility with older firmware versions.
         transmitPythonCommand("import fpga;print(fpga.read(2,12));del(fpga)")
     }
 
-    private func transmitInitiateFirmwareUpdateCommand() {
+    func transmitInitiateFirmwareUpdateCommand() {
         // Begin a firmware update
         transmitPythonCommand("import update;update.micropython()")
     }
 
-    private func transmitFPGADisableAndErase() {
+    func transmitFPGADisableAndErase() {
         // Begin FPGA update by turning it off and erasing it
         transmitPythonCommand("import ubinascii,update,device,bluetooth,fpga;fpga.run(False);update.Fpga.erase()")
     }
 
-    private func transmitFPGAWriteAndDeviceReset() {
+    func transmitFPGAWriteAndDeviceReset() {
         // Commit data to FPGA and reset device
         transmitPythonCommand("update.Fpga.write(b'done');device.reset()")
     }
 
-    private func transmitVersionCheck() {
+    func transmitVersionCheck() {
         // Check app version
         transmitPythonCommand("print(ARGPT_VERSION)")
     }
 
-    private func transmitPythonCommand(_ command: String) {
+    func transmitPythonCommand(_ command: String) {
         let command = command.data(using: .utf8)!
         var data = Data()
         data.append(command)
@@ -851,7 +794,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         send(data: data, to: _monocleBluetooth, on: Self._serialRx)
     }
 
-    private func loadFilesForTransmission() -> ([(name: String, content: String)], String) {
+    func loadFilesForTransmission() -> ([(name: String, content: String)], String) {
         // Load up all the files
         let basenames = [ "states", "graphics", "audio", "photo", "main" ]
         var files: [(name: String, content: String)] = []
@@ -876,7 +819,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         return (files, version)
     }
 
-    private func loadPythonScript(named basename: String) -> String {
+    func loadPythonScript(named basename: String) -> String {
         let url = Bundle.main.url(forResource: basename, withExtension: "py")!
         let data = try? Data(contentsOf: url)
         guard let data = data,
@@ -886,7 +829,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         return sourceCode
     }
 
-    private func generateProgramVersionString(for files: [(String, String)]) -> String {
+    func generateProgramVersionString(for files: [(String, String)]) -> String {
         let concatenatedScripts = files.reduce(into: "") { concatenated, fileItem in
             let (filename, contents) = fileItem
             concatenated += filename
@@ -900,7 +843,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         return digest.description
     }
 
-    private func transmitNextScript(scriptTransmissionState: ScriptTransmissionState) {
+    func transmitNextScript(scriptTransmissionState: ScriptTransmissionState) {
         guard let (filename, contents) = scriptTransmissionState.tryDequeueNextScript() else {
             print("[Controller] All scripts written. Starting program...")
             transitionState(to: .running)
@@ -927,10 +870,12 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
         return data.base64EncodedString()
     }
+}
 
-    // MARK: Monocle Commands
+// MARK: - Monocle Commands
 
-    private func onMonocleCommand(command: String, data: Data) {
+private extension Controller {
+    func onMonocleCommand(command: String, data: Data) {
         if command.starts(with: "ast:") || command.starts(with: "ien:") {
             // Delete currently stored audio and prepare to receive new audio sample over
             // multiple packets
@@ -977,11 +922,13 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             }
         }
     }
+}
 
-    // MARK: User Query Flow
+// MARK: - User Query Flow
 
+private extension Controller {
     // Step 1: Voice received from Monocle and converted to M4A
-    private func onVoiceReceived(voiceSample: AVAudioPCMBuffer) {
+    func onVoiceReceived(voiceSample: AVAudioPCMBuffer) {
         print("[Controller] Voice received. Converting to M4A...")
 
         // When in translation mode, we don't perform user transcription
@@ -999,7 +946,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     }
 
     // Step 2a: Transcribe speech to text using Whisper and send transcription UUID to Monocle
-    private func transcribe(audioFile fileData: Data, mode: ChatGPT.Mode) {
+    func transcribe(audioFile fileData: Data, mode: ChatGPT.Mode) {
         print("[Controller] Transcribing voice...")
 
         _whisper.transcribe(mode: mode == .assistant ? .transcription : .translation, fileData: fileData, format: .m4a, apiKey: _settings.openAIKey) { [weak self] (query: String, error: AIError?) in
@@ -1029,7 +976,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     }
 
     // Step 3: Transcription UUID received, kick off ChatGPT request
-    private func onTranscriptionAcknowledged(id: UUID) {
+    func onTranscriptionAcknowledged(id: UUID) {
         // Fetch query
         guard let query = _pendingQueryByID.removeValue(forKey: id) else {
             return
@@ -1040,7 +987,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         submitQuery(query: query, transcriptionID: id)
     }
 
-    private func submitQuery(query: String, transcriptionID id: UUID) {
+    func submitQuery(query: String, transcriptionID id: UUID) {
         // User message
         printToChat(query, as: .user)
 
@@ -1057,7 +1004,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func generateImage(prompt: String) {
+    func generateImage(prompt: String) {
         // Monocle will not receive anything, tell it to go back to idle (ick = image ack)
         send(text: "ick:", to: _monocleBluetooth, on: Self._dataRx)
 
@@ -1093,10 +1040,12 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             }
         }
     }
+}
 
-    // MARK: Result Output
+// MARK: - Result Output
 
-    private func printErrorToChat(_ message: String, as participant: Participant) {
+private extension Controller {
+    func printErrorToChat(_ message: String, as participant: Participant) {
         _messages.putMessage(Message(text: message, isError: true, participant: participant))
 
         // Send all error messages to Monocle
@@ -1105,11 +1054,11 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         print("[Controller] Error printed: \(message)")
     }
 
-    private func printTypingIndicatorToChat(as participant: Participant) {
+    func printTypingIndicatorToChat(as participant: Participant) {
         _messages.putMessage(Message(text: "", typingInProgress: true, participant: participant))
     }
 
-    private func printToChat(_ text: String, picture: UIImage? = nil, as participant: Participant) {
+    func printToChat(_ text: String, picture: UIImage? = nil, as participant: Participant) {
         _messages.putMessage(Message(text: text, picture: picture, participant: participant))
 
         if participant != .user {
@@ -1117,22 +1066,24 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             sendTextToMonocleInChunks(text: text, isError: false)
         }
     }
+}
 
-    // MARK: Send to Monocle
+// MARK: - Send to Monocle
 
-    private func send(data: Data, to bluetooth: BluetoothManager, on characteristicID: CBUUID) {
+private extension Controller {
+    func send(data: Data, to bluetooth: BluetoothManager, on characteristicID: CBUUID) {
         _bluetoothQueue.async {
             bluetooth.send(data: data, on: characteristicID)
         }
     }
 
-    private func send(text: String, to bluetooth: BluetoothManager, on characteristicID: CBUUID) {
+    func send(text: String, to bluetooth: BluetoothManager, on characteristicID: CBUUID) {
         _bluetoothQueue.async {
             bluetooth.send(text: text, on: characteristicID)
         }
     }
 
-    private func sendTextToMonocleInChunks(text: String, isError: Bool) {
+    func sendTextToMonocleInChunks(text: String, isError: Bool) {
         _bluetoothQueue.async { [weak _monocleBluetooth] in
             guard let _monocleBluetooth = _monocleBluetooth,
                   var chunkSize = _monocleBluetooth.maximumDataLength else {
@@ -1159,7 +1110,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
     }
 
-    private func sendImageToMonocleInChunks(image: UIImage) {
+    func sendImageToMonocleInChunks(image: UIImage) {
         guard let pixelBuffer = image.toPixelBuffer() else { return }
 
         let bitmap = convertARGB8ToRGB343(pixelBuffer)
@@ -1200,10 +1151,12 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             print("[Controller] Send \(bitmap.count) bytes of bitmap data to Monocle")
         }
     }
+}
 
-    // MARK: Debug Audio Playback
+// MARK: - Debug Audio Playback
 
-    private func setupAudioSession() {
+private extension Controller {
+    func setupAudioSession() {
         // Set up the app's audio session
         do {
             try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [ .defaultToSpeaker ])
@@ -1226,7 +1179,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         _audioConverter = AVAudioConverter(from: _monocleFormat, to: _playbackFormat)
     }
 
-    private func playReceivedAudio(_ pcmBuffer: AVAudioPCMBuffer) {
+    func playReceivedAudio(_ pcmBuffer: AVAudioPCMBuffer) {
         if let audioConverter = _audioConverter {
             var error: NSError?
             var allSamplesReceived = false
@@ -1252,33 +1205,99 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             _playerNode.play()
         }
     }
+}
 
-    // MARK: Nordic DFU Delegates (Main Queue)
+extension Controller {
+    public enum MonocleState {
+        case notReady           // Monocle connection not yet firmly established
+        case updatingFirmware
+        case updatingFPGA
+        case ready              // connected, finished all updates, running state
+    }
+}
 
-    public func logWith(_ level: LogLevel, message: String) {
-        print("[Controller] DFU: \(message)")
+private extension Controller {
+    // Internal controller state
+    enum State: Equatable {
+        case disconnected
+
+        // Startup sequence: raw REPL, check whether firmware and FPGA updates required and perform
+        // them. If DFU was performed and Monocle had to reset, we detect that case so that when we
+        // get to the firmware and FPGA update phase, we can compute the correct relative
+        // percentage each contributes. We pass the DFU state along in the enums themselves.
+        case enterRawREPL(didFinishDFU: Bool)
+        case waitingForRawREPL(didFinishDFU: Bool)
+        case waitingForFirmwareVersion(didFinishDFU: Bool)
+        case waitingForFPGAVersion(didFinishDFU: Bool)
+
+        // Continuation of startup sequence: check and update Monocle scripts
+        case waitingForARGPTVersion
+        case transmittingScripts(scriptTransmissionState: ScriptTransmissionState)
+
+        // Running state: Monocle app is up and able to communicate with iOS
+        case running
+
+        // Firmware update states
+        case initiateDFUAndWaitForDFUTarget(rescaleUpdatePercentage: Bool)
+        case performDFU(peripheral: CBPeripheral, rescaleUpdatePercentage: Bool)
+
+        // FPGA update states
+        case initiateFPGAUpdate(maximumDataLength: Int, rescaleUpdatePercentage: Bool)
+        case waitForFPGAErased(updateState: FPGAUpdateState)
+        case sendNextFPGAImageChunk(updateState: FPGAUpdateState)
+        case writeFPGAAndReset
     }
 
-    public func dfuStateDidChange(to state: DFUState) {
-        print("[Controller] DFU state changed to: \(state)")
+    class FPGAUpdateState: Equatable {
+        /// FPGA image as Base64-encoded string
+        var image: String
+
+        /// Size of a single chunk, in Base64-encoded characters
+        var chunkSize: Int
+
+        /// Total number of chunks
+        var chunks: Int
+
+        /// Next chunk to transmit
+        var chunk: Int
+
+        /// Whether we need to rescale the update percentage because of DFU
+        let rescaleUpdatePercentage: Bool
+
+        init(maximumDataLength: Int, rescaleUpdatePercentage: Bool) {
+            image = Controller.loadFPGAImageAsBase64()
+            chunkSize = (((maximumDataLength - 45) / 3) / 4) * 4 * 3    // update string must be 45 characters!
+            chunks = image.count / chunkSize + ((image.count % chunkSize) == 0 ? 0 : 1)
+            chunk = 0
+            self.rescaleUpdatePercentage = rescaleUpdatePercentage
+            print("[Controller] FPGA update: image=\(image.count) bytes, chunkSize=\(chunkSize), chunks=\(chunks), maximumDataLength=\(maximumDataLength)")
+        }
+
+        public var entireImageTransmitted: Bool {
+            return chunk >= chunks
+        }
+
+        /// Compare whether objects are the same
+        static func == (lhs: Controller.FPGAUpdateState, rhs: Controller.FPGAUpdateState) -> Bool {
+            return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+        }
     }
 
-    public func dfuError(_ error: DFUError, didOccurWithMessage message: String) {
-        print("[Conroller] DFU error: \(message)")
-    }
+    class ScriptTransmissionState: Equatable {
+        /// Files remaining to transmit. The first file is always transmitted next.
+        var filesToTransmit: [(name: String, content: String)] = []
 
-    public func dfuProgressDidChange(
-        for part: Int,
-        outOf totalParts: Int,
-        to progress: Int,
-        currentSpeedBytesPerSecond: Double,
-        avgSpeedBytesPerSecond: Double
-    ) {
-        print("[Controller] DFU progress: part=\(part)/\(totalParts), progress=\(progress)%")
-        if case let .performDFU(peripheral: _, rescaleUpdatePercentage: rescaleUpdatePercentage) = _state {
-            // If we need to rescale the update percentage (because an FPGA update will follow), we
-            // want to go from 0-50%, so just need to divide by 2.
-            updateProgressPercent = rescaleUpdatePercentage ? (progress / 2) : progress
+        init(filesToTransmit: [(name: String, content: String)]) {
+            self.filesToTransmit = filesToTransmit
+        }
+
+        public func tryDequeueNextScript() -> (name: String, content: String)? {
+            guard filesToTransmit.count > 0 else { return nil }
+            return filesToTransmit.removeFirst()
+        }
+
+        static func == (lhs: Controller.ScriptTransmissionState, rhs: Controller.ScriptTransmissionState) -> Bool {
+            return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
         }
     }
 }
