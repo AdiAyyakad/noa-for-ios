@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		352D27F82A7B01820019EFDB /* SpinningMonocle.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */; };
+		403C026C2CF4517A00E7B24F /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 403C026B2CF4517A00E7B24F /* ComposableArchitecture */; };
 		40C98F3A2CF43C2E00E6946F /* ControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C98F392CF43C2E00E6946F /* ControllerTests.swift */; };
 		CC00398B2A6A4F11009E3BAC /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */; };
 		CC0039A12A6DA51A009E3BAC /* PopupDeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0039A02A6DA51A009E3BAC /* PopupDeviceView.swift */; };
@@ -177,6 +178,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				403C026C2CF4517A00E7B24F /* ComposableArchitecture in Frameworks */,
 				CC5274822B7AD35B00593B67 /* NordicDFU in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -471,6 +473,7 @@
 			name = Noa;
 			packageProductDependencies = (
 				CC5274812B7AD35B00593B67 /* NordicDFU */,
+				403C026B2CF4517A00E7B24F /* ComposableArchitecture */,
 			);
 			productName = "ChatGPT for Monocle";
 			productReference = CC4E3AC02A00BA4C0058AC20 /* Noa.app */;
@@ -546,6 +549,7 @@
 			mainGroup = CC4E3AB72A00BA4C0058AC20;
 			packageReferences = (
 				CC5274802B7AD35B00593B67 /* XCRemoteSwiftPackageReference "IOS-DFU-Library" */,
+				403C026A2CF4517A00E7B24F /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
 			);
 			productRefGroup = CC4E3AC12A00BA4C0058AC20 /* Products */;
 			projectDirPath = "";
@@ -1006,6 +1010,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		403C026A2CF4517A00E7B24F /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.16.1;
+			};
+		};
 		CC5274802B7AD35B00593B67 /* XCRemoteSwiftPackageReference "IOS-DFU-Library" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/trzy/IOS-DFU-Library/";
@@ -1017,6 +1029,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		403C026B2CF4517A00E7B24F /* ComposableArchitecture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 403C026A2CF4517A00E7B24F /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
+			productName = ComposableArchitecture;
+		};
 		CC5274812B7AD35B00593B67 /* NordicDFU */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC5274802B7AD35B00593B67 /* XCRemoteSwiftPackageReference "IOS-DFU-Library" */;
