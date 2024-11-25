@@ -70,10 +70,13 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
     // Monocle characteristic IDs. Note that directionality is from Monocle's perspective (i.e., we
     // transmit to Monocle on the receive characteristic).
+    private static let _serialService = CBUUID(string: "6e400001-b5a3-f393-e0a9-e50e24dcca9e")
     private static let _serialTx = CBUUID(string: "6e400003-b5a3-f393-e0a9-e50e24dcca9e")
     private static let _serialRx = CBUUID(string: "6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+    private static let _dataService = CBUUID(string: "e5700001-7bac-429a-b4ce-57ff900f479d")
     private static let _dataTx = CBUUID(string: "e5700003-7bac-429a-b4ce-57ff900f479d")
     private static let _dataRx = CBUUID(string: "e5700002-7bac-429a-b4ce-57ff900f479d")
+    private static let _dfuService = CBUUID(string: "0xfe59")
 
     // Monocle Bluetooth manager
     private let _monocleBluetooth: BluetoothManager
@@ -130,27 +133,16 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         _monocleBluetooth = BluetoothManager(
             autoConnectByProximity: false,  // must not auto-connect during pairing sequence; user must have time to click Connect
             peripheralName: "monocle",
-            services: [
-                CBUUID(string: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"): "Serial",
-                CBUUID(string: "e5700001-7bac-429a-b4ce-57ff900f479d"): "Data"
-            ],
-            receiveCharacteristics: [
-                Controller._serialTx: "SerialTx",
-                Controller._dataTx: "DataTx",
-            ],
-            transmitCharacteristics: [
-                Controller._serialRx: "SerialRx",
-                Controller._dataRx: "DataRx"
-            ],
+            services: [Self._serialService: "Serial", Self._dataService: "Data"],
+            receiveCharacteristics: [Self._serialTx: "SerialTx", Self._dataTx: "DataTx",],
+            transmitCharacteristics: [Self._serialRx: "SerialRx", Self._dataRx: "DataRx"],
             queue: _bluetoothQueue
         )
 
         _dfuBluetooth = BluetoothManager(
             autoConnectByProximity: true,   // DFU target will have different ID and so we must just auto-connect
             peripheralName: "DfuTarg",
-            services: [
-                CBUUID(string: "0xfe59"): "Nordic DFU"
-            ],
+            services: [Self._dfuService: "Nordic DFU"],
             receiveCharacteristics: [:],    // DFUServiceConroller will handle services on its own
             transmitCharacteristics: [:],
             queue: _bluetoothQueue
@@ -165,7 +157,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
         // Subscribe to changed of paired device ID setting (comes in on main queue)
         _settings.$pairedDeviceID.sink(receiveValue: { [weak self] (newPairedDeviceID: UUID?) in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let uuid = newPairedDeviceID {
                 print("[Controller] Pair to \(uuid)")
@@ -186,7 +178,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         // Changes in nearby list of Monocle devices (arrives on Bluetooth queue)
         _monocleBluetooth.discoveredDevices.sink { [weak self] (devices: [(deviceID: UUID, rssi: Float)]) in
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 // If there is a Monocle that is within pairing distance, broadcast that. We use two
                 // thresholds for hysteresis.
                 let thresholdLow: Float = -85
@@ -207,7 +199,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         // Connection to Monocle (arrives on Bluetooth queue)
         _monocleBluetooth.peripheralConnected.sink { [weak self] (deviceID: UUID) in
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
 
                 print("[Controller] Monocle connected")
 
@@ -237,7 +229,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         // Monocle disconnected (arrives on Bluetooth queue)
         _monocleBluetooth.peripheralDisconnected.sink { [weak self] in
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 print("[Controller] Monocle disconnected")
 
                 // Are we in a DFU state?
@@ -265,7 +257,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         // Monocle data received (arrives on Bluetooth queue)
         _monocleBluetooth.dataReceived.sink { [weak self] (received: (characteristic: CBUUID, value: Data)) in
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
 
                 let (characteristicID, value) = received
 
@@ -281,7 +273,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         _dfuBluetooth.peripheralConnected.sink { [weak self] (deviceID: UUID) in
             guard let peripheral = self?._dfuBluetooth.connectedPeripheral else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
 
                 print("[Controller] DFUTarget connected")
 
@@ -400,7 +392,7 @@ private extension Controller {
             // raw REPL code periodically is unworkable because it can create a pile-up of
             // responses that throws off the firmware detection logic. Instead, we use a delay.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 guard case .enterRawREPL(didFinishDFU: _) = _state else { return }
 
                 // Transmit raw REPL code to enter raw REPL mode then wait for confirmation
@@ -936,8 +928,7 @@ private extension Controller {
 
         // Convert to M4A, then pass to speech transcription
         _m4aWriter.write(buffer: voiceSample) { [weak self] (fileData: Data?) in
-            guard let self = self,
-                  let fileData = fileData else {
+            guard let self, let fileData else {
                 self?.printErrorToChat("Unable to process audio!", as: .user)
                 return
             }
@@ -949,28 +940,32 @@ private extension Controller {
     func transcribe(audioFile fileData: Data, mode: ChatGPT.Mode) {
         print("[Controller] Transcribing voice...")
 
-        _whisper.transcribe(mode: mode == .assistant ? .transcription : .translation, fileData: fileData, format: .m4a, apiKey: _settings.openAIKey) { [weak self] (query: String, error: AIError?) in
-            guard let self = self else { return }
-            if let error = error {
+        _whisper.transcribe(mode: mode == .assistant ? .transcription : .translation, fileData: fileData, format: .m4a, apiKey: _settings.openAIKey) { [weak self] (result: Result<String, AIError>) in
+            guard let self else { return }
+            switch result {
+            case let .failure(error):
                 printErrorToChat(error.description, as: .user)
-            } else if _imageData.isEmpty {
-                // No image data: normal operation (assistant or translator)
-                if mode == .assistant {
-                    // Store query and send ID to Monocle. We need to do this because we cannot perform
-                    // back-to-back network requests in background mode. Monocle will reply back with
-                    // the ID, allowing us to perform a ChatGPT request.
-                    let id = UUID()
-                    _pendingQueryByID[id] = query
-                    send(text: "pin:" + id.uuidString, to: _monocleBluetooth, on: Self._dataRx)
-                    print("[Controller] Sent transcription ID to Monocle: \(id)")
+            case let .success(query):
+                if !_imageData.isEmpty {
+                    // Have image data, perform image generation
+                    generateImage(prompt: query)
                 } else {
-                    // Translation mode: No more network requests to do. Display translation.
-                    printToChat(query, as: .translator)
-                    print("[Controller] Translation received: \(query)")
+                    // No image data: normal operation (assistant or translator)
+                    switch mode {
+                    case .assistant:
+                        // Store query and send ID to Monocle. We need to do this because we cannot perform
+                        // back-to-back network requests in background mode. Monocle will reply back with
+                        // the ID, allowing us to perform a ChatGPT request.
+                        let id = UUID()
+                        _pendingQueryByID[id] = query
+                        send(text: "pin:" + id.uuidString, to: _monocleBluetooth, on: Self._dataRx)
+                        print("[Controller] Sent transcription ID to Monocle: \(id)")
+                    case .translator:
+                        // Translation mode: No more network requests to do. Display translation.
+                        printToChat(query, as: .translator)
+                        print("[Controller] Translation received: \(query)")
+                    }
                 }
-            } else {
-                // Have image data, perform image generation
-                generateImage(prompt: query)
             }
         }
     }
@@ -994,11 +989,13 @@ private extension Controller {
         // Send to ChatGPT
         let responder = mode == .assistant ? Participant.assistant : Participant.translator
         printTypingIndicatorToChat(as: responder)
-        _chatGPT.send(mode: mode, query: query, apiKey: _settings.openAIKey, model: _settings.gptModel) { [weak self] (response: String, error: AIError?) in
-            if let error = error {
-                self?.printErrorToChat(error.description, as: responder)
-            } else {
-                self?.printToChat(response, as: responder)
+        _chatGPT.send(mode: mode, query: query, apiKey: _settings.openAIKey, model: _settings.gptModel) { [weak self] (result: Result<String, AIError>) in
+            guard let self else { return }
+            switch result {
+            case let .failure(error):
+                self.printErrorToChat(error.description, as: responder)
+            case let .success(response):
+                self.printToChat(response, as: responder)
                 print("[Controller] Received response from ChatGPT for \(id): \(response)")
             }
         }
@@ -1026,17 +1023,15 @@ private extension Controller {
             strength: _settings.imageStrength,
             guidance: _settings.imageGuidance,
             apiKey: _settings.stabilityAIKey
-        ) { [weak self] (image: UIImage?, error: AIError?) in
-            if let error = error {
+        ) { [weak self] (result: Result<UIImage, AIError>) in
+            switch result {
+            case .failure(let error):
                 self?.printErrorToChat(error.description, as: .assistant)
-            } else if let picture = image?.centerCropped(to: CGSize(width: 640, height: 400)) { // crop out the letterboxing we had to introduce and return to original size
+            case .success(let image):
+                let picture = image.centerCropped(to: CGSize(width: 640, height: 400)) // crop out the letterboxing we had to introduce and return to original size
                 self?.printToChat(prompt, picture: picture, as: .assistant)
-
                 //TODO: this does not seem to work yet
                 //self?.sendImageToMonocleInChunks(image: picture)
-            } else {
-                // No picture but also no explicit error
-                self?.printErrorToChat("No image received", as: .assistant)
             }
         }
     }

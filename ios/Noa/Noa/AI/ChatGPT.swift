@@ -22,7 +22,7 @@ public class ChatGPT: NSObject {
     private static let _maxTokens = 4000    // 4096 for gpt-3.5-turbo and larger for gpt-4, but we use a conservative number to avoid hitting that limit
 
     private var _session: URLSession!
-    private var _completionByTask: [Int: (String, AIError?) -> Void] = [:]
+    private var _completionByTask: [Int: (Result<String, AIError>) -> Void] = [:]
     private var _tempFileURL: URL?
 
     private static let _assistantPrompt = "You are a smart assistant that answers all user queries, questions, and statements with a single sentence."
@@ -71,7 +71,7 @@ public class ChatGPT: NSObject {
         }
     }
 
-    public func send(mode: Mode, query: String, apiKey: String, model: String, completion: @escaping (String, AIError?) -> Void) {
+    public func send(mode: Mode, query: String, apiKey: String, model: String, completion: @escaping (Result<String, AIError>) -> Void) {
         let requestHeader = [
             "Authorization": "Bearer \(apiKey)",
             "Content-Type": "application/json"
@@ -130,7 +130,7 @@ public class ChatGPT: NSObject {
         }
     }
 
-    private func extractContent(from data: Data) -> (Any?, AIError?, String?) {
+    private func extractContent(from data: Data) -> (Any?, Result<String, AIError>) {
         do {
             let jsonString = String(decoding: data, as: UTF8.self)
             if jsonString.count > 0 {
@@ -150,20 +150,20 @@ public class ChatGPT: NSObject {
                             errorMessage = "No response received. Ensure your API key is valid and try again."
                         }
                     }
-                    return (json, AIError.apiError(message: errorMessage), nil)
+                    return (json, .failure(.apiError(message: errorMessage)))
                 } else if let choices = response["choices"] as? [AnyObject],
                           choices.count > 0,
                           let first = choices[0] as? [String: AnyObject],
                           let message = first["message"] as? [String: AnyObject],
                           let content = message["content"] as? String {
-                    return (json, nil, content)
+                    return (json, .success(content))
                 }
             }
             print("[ChatGPT] Error: Unable to parse response")
         } catch {
             print("[ChatGPT] Error: Unable to deserialize response: \(error)")
         }
-        return (nil, AIError.responsePayloadParseError, nil)
+        return (nil, .failure(.responsePayloadParseError))
     }
 
     private func extractTotalTokensUsed(from json: Any?) -> Int {
@@ -184,9 +184,9 @@ extension ChatGPT: URLSessionDelegate {
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             for (_, completion) in self._completionByTask {
-                completion("", AIError.clientSideNetworkError(error: error))
+                completion(.failure(.clientSideNetworkError(error: error)))
             }
             _completionByTask = [:]
         }
@@ -226,11 +226,9 @@ extension ChatGPT: URLSessionDataDelegate {
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                if let completion = self._completionByTask[task.taskIdentifier] {
-                    completion("", AIError.urlAuthenticationFailed)
-                    self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                }
+                guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+                completion(.failure(.urlAuthenticationFailed))
+                self._completionByTask.removeValue(forKey: task.taskIdentifier)
             }
         }
     }
@@ -248,11 +246,9 @@ extension ChatGPT: URLSessionDataDelegate {
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
-                self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
-            }
+            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
+            self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
         }
 
         // Continue with new task
@@ -271,11 +267,9 @@ extension ChatGPT: URLSessionDataDelegate {
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                completion("", AIError.clientSideNetworkError(error: error))
-                self._completionByTask.removeValue(forKey: task.taskIdentifier)
-            }
+            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            completion(.failure(.clientSideNetworkError(error: error)))
+            self._completionByTask.removeValue(forKey: task.taskIdentifier)
         }
     }
 
@@ -292,13 +286,14 @@ extension ChatGPT: URLSessionDataDelegate {
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let (json, contentError, response) = extractContent(from: data)
+        let (json, result) = extractContent(from: data)
+        let response = try? result.get()
         let responseString = response ?? "" // if response is nill, contentError will be set
         let totalTokensUsed = extractTotalTokensUsed(from: json)
 
         // Deliver response and append to chat session
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
             // Append to chat session to maintain running dialog unless we've exceeded the context
             // window
@@ -311,7 +306,7 @@ extension ChatGPT: URLSessionDataDelegate {
 
             // Deliver response
             if let completion = self._completionByTask[dataTask.taskIdentifier] {
-                completion(responseString, contentError)
+                completion(result)
                 self._completionByTask.removeValue(forKey: dataTask.taskIdentifier)
             } else {
                 print("[ChatGPT]: Error: No completion found for task \(dataTask.taskIdentifier)")

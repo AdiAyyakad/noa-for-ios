@@ -74,7 +74,7 @@ class Whisper: NSObject {
     }
 
     private var _session: URLSession!
-    private var _completionByTask: [Int: (String, AIError?) -> Void] = [:]
+    private var _completionByTask: [Int: (Result<String, AIError>) -> Void] = [:]
     private var _tempFileURL: URL?
 
     public init(configuration: NetworkConfiguration) {
@@ -100,7 +100,7 @@ class Whisper: NSObject {
         }
     }
 
-    public func transcribe(mode: Mode, fileData: Data, format: AudioFormat, apiKey: String, completion: @escaping (String, AIError?) -> Void) {
+    public func transcribe(mode: Mode, fileData: Data, format: AudioFormat, apiKey: String, completion: @escaping (Result<String, AIError>) -> Void) {
         let boundary = UUID().uuidString
 
         let function = mode == .transcription ? "transcriptions" : "translations"
@@ -160,39 +160,49 @@ class Whisper: NSObject {
         // Begin
         task.resume()
     }
+}
 
-    private func extractContent(from data: Data) -> (AIError?, String?) {
+// MARK: - Private Helper
+
+private extension Whisper {
+    func extractContent(from data: Data) -> Result<String, AIError> {
         do {
             let jsonString = String(decoding: data, as: UTF8.self)
             if jsonString.count > 0 {
                 print("[Whisper] Response payload: \(jsonString)")
             }
             let json = try JSONSerialization.jsonObject(with: data, options: [])
-            if let response = json as? [String: AnyObject] {
-                if let errorPayload = response["error"] as? [String: AnyObject],
-                   var errorMessage = errorPayload["message"] as? String {
-                    // Error from OpenAI
-                    if errorMessage.isEmpty {
-                        // This happens sometimes, try to see if there is an error code
-                        if let errorCode = errorPayload["code"] as? String,
-                           !errorCode.isEmpty {
-                            errorMessage = "Unable to respond. Error code: \(errorCode)"
-                        } else {
-                            errorMessage = "No response received. Ensure your API key is valid and try again."
-                        }
-                    }
-                    return (AIError.apiError(message: errorMessage), nil)
-                } else if let text = response["text"] as? String {
-                    return (nil, text)
-                }
+            guard let response = json as? [String: AnyObject] else {
+                print("[Whisper] Error: Unable to parse response")
+                return .failure(.responsePayloadParseError)
             }
-            print("[Whisper] Error: Unable to parse response")
+            if let errorPayload = response["error"] as? [String: AnyObject],
+               var errorMessage = errorPayload["message"] as? String {
+                // Error from OpenAI
+                if errorMessage.isEmpty {
+                    // This happens sometimes, try to see if there is an error code
+                    if let errorCode = errorPayload["code"] as? String,
+                       !errorCode.isEmpty {
+                        errorMessage = "Unable to respond. Error code: \(errorCode)"
+                    } else {
+                        errorMessage = "No response received. Ensure your API key is valid and try again."
+                    }
+                }
+                return .failure(.apiError(message: errorMessage))
+            } else if let text = response["text"] as? String {
+                return .success(text)
+            } else {
+                print("[Whisper] Error: Unable to parse response")
+                return .failure(.responsePayloadParseError)
+            }
         } catch {
             print("[Whisper] Error: Unable to deserialize response: \(error)")
+            return .failure(.responsePayloadParseError)
         }
-        return (AIError.responsePayloadParseError, nil)
     }
 }
+
+// MARK: - URLSessionDelegate
 
 extension Whisper: URLSessionDelegate {
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
@@ -201,9 +211,9 @@ extension Whisper: URLSessionDelegate {
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             for (_, completion) in self._completionByTask {
-                completion("", AIError.clientSideNetworkError(error: error))
+                completion(.failure(.clientSideNetworkError(error: error)))
             }
             _completionByTask = [:]
         }
@@ -222,6 +232,8 @@ extension Whisper: URLSessionDelegate {
         }
     }
 }
+
+// MARK: - URLSessionDataDelegate
 
 extension Whisper: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome streamTask: URLSessionStreamTask) {
@@ -243,9 +255,9 @@ extension Whisper: URLSessionDataDelegate {
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 if let completion = self._completionByTask[task.taskIdentifier] {
-                    completion("", AIError.urlAuthenticationFailed)
+                    completion(.failure(AIError.urlAuthenticationFailed))
                     self._completionByTask.removeValue(forKey: task.taskIdentifier)
                 }
             }
@@ -265,11 +277,9 @@ extension Whisper: URLSessionDataDelegate {
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
-                self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
-            }
+            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
+            self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
         }
 
         // Continue with new task
@@ -277,7 +287,7 @@ extension Whisper: URLSessionDataDelegate {
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error = error {
+        if let error {
             print("[Whisper] URLSessionDataTask failed to complete: \(error.localizedDescription)")
         } else {
             // Error == nil should indicate successful completion
@@ -288,11 +298,9 @@ extension Whisper: URLSessionDataDelegate {
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                completion("", AIError.clientSideNetworkError(error: error))
-                self._completionByTask.removeValue(forKey: task.taskIdentifier)
-            }
+            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            completion(.failure(.clientSideNetworkError(error: error)))
+            self._completionByTask.removeValue(forKey: task.taskIdentifier)
         }
     }
 
@@ -309,14 +317,13 @@ extension Whisper: URLSessionDataDelegate {
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let (contentError, transcript) = self.extractContent(from: data)
-        let transcriptString = transcript ?? "" // if response is nill, contentError will be set
+        let result = self.extractContent(from: data)
 
         // Deliver response
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             if let completion = self._completionByTask[dataTask.taskIdentifier] {
-                completion(transcriptString, contentError)
+                completion(result)
                 self._completionByTask.removeValue(forKey: dataTask.taskIdentifier)
             }
         }

@@ -15,7 +15,7 @@ class StableDiffusion: NSObject {
     }
 
     private var _session: URLSession!
-    private var _completionByTask: [Int: (UIImage?, AIError?) -> Void] = [:]
+    private var _completionByTask: [Int: (Result<UIImage, AIError>) -> Void] = [:]
     private var _responseDataByTask: [Int: Data] = [:]
     private var _tempFileURL: URL?
 
@@ -42,11 +42,11 @@ class StableDiffusion: NSObject {
         }
     }
 
-    public func imageToImage(image: UIImage, prompt: String, model: String, strength: Float, guidance: Int, apiKey: String, completion: @escaping (UIImage?, AIError?) -> Void) {
+    public func imageToImage(image: UIImage, prompt: String, model: String, strength: Float, guidance: Int, apiKey: String, completion: @escaping (Result<UIImage, AIError>) -> Void) {
         // Stable Diffusion wants images to be multiples of 64 pixels on each side
         guard let pngImageData = getPNGData(for: image) else {
             DispatchQueue.main.async {
-                completion(nil, AIError.dataFormatError(message: "Unable to crop image and convert to PNG"))
+                completion(.failure(.dataFormatError(message: "Unable to crop image and convert to PNG")))
             }
             return
         }
@@ -144,7 +144,7 @@ class StableDiffusion: NSObject {
 
     private func deliverImage(for taskIdentifier: Int) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
             guard let completion = _completionByTask[taskIdentifier] else {
                 print("[StableDiffusion] Error: Lost completion data for task \(taskIdentifier)")
@@ -162,35 +162,39 @@ class StableDiffusion: NSObject {
             _responseDataByTask.removeValue(forKey: taskIdentifier)
 
             // Extract and deliver image
-            let (contentError, image) = self.extractContent(from: responseData)
-            completion(image, contentError)
+            let result = self.extractContent(from: responseData)
+            completion(result)
         }
     }
 
-    private func extractContent(from data: Data) -> (AIError?, UIImage?) {
+    private func extractContent(from data: Data) -> Result<UIImage, AIError> {
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
-            if let response = json as? [String: AnyObject] {
-                if let errorType = response["name"] as? String {
-                    var errorMessage = "Stability AI request failed (\(errorType))"
-                    if let message = response["message"] as? String {
-                        errorMessage += ": \(message)"
-                    }
-                    return (AIError.apiError(message: errorMessage), nil)
-                } else if let artifacts = response["artifacts"] as? [[String: AnyObject]],
-                       artifacts.count > 0,
-                       let base64String = artifacts[0]["base64"] as? String,
-                       let base64Data = base64String.data(using: .utf8),
-                       let imageData = Data(base64Encoded: base64Data),
-                       let image = UIImage(data: imageData) {
-                    return (nil, image)
-                }
+            guard let response = json as? [String: AnyObject] else {
+                print("[StableDiffusion] Error: Unable to parse response")
+                return .failure(.responsePayloadParseError)
             }
-            print("[StableDiffusion] Error: Unable to parse response")
+            if let errorType = response["name"] as? String {
+                var errorMessage = "Stability AI request failed (\(errorType))"
+                if let message = response["message"] as? String {
+                    errorMessage += ": \(message)"
+                }
+                return .failure(.apiError(message: errorMessage))
+            } else if let artifacts = response["artifacts"] as? [[String: AnyObject]],
+                   artifacts.count > 0,
+                   let base64String = artifacts[0]["base64"] as? String,
+                   let base64Data = base64String.data(using: .utf8),
+                   let imageData = Data(base64Encoded: base64Data),
+                   let image = UIImage(data: imageData) {
+                return .success(image)
+            } else {
+                print("[StableDiffusion] Error: Unable to parse response")
+                return .failure(.responsePayloadParseError)
+            }
         } catch {
             print("[StableDiffusion] Error: Unable to deserialize response: \(error)")
+            return .failure(.responsePayloadParseError)
         }
-        return (AIError.responsePayloadParseError, nil)
     }
 }
 
@@ -201,9 +205,9 @@ extension StableDiffusion: URLSessionDelegate {
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             for (_, completion) in self._completionByTask {
-                completion(nil, AIError.clientSideNetworkError(error: error))
+                completion(.failure(.clientSideNetworkError(error: error)))
             }
             _completionByTask = [:]
             _responseDataByTask = [:]
@@ -244,12 +248,10 @@ extension StableDiffusion: URLSessionDataDelegate {
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                if let completion = self._completionByTask[task.taskIdentifier] {
-                    completion(nil, AIError.urlAuthenticationFailed)
-                    self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                    self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
-                }
+                guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+                completion(.failure(.urlAuthenticationFailed))
+                self._completionByTask[task.taskIdentifier] = nil
+                self._responseDataByTask[task.taskIdentifier] = nil
             }
         }
     }
@@ -267,13 +269,13 @@ extension StableDiffusion: URLSessionDataDelegate {
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             if let completion = self._completionByTask[task.taskIdentifier] {
-                self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
+                self._completionByTask[task.taskIdentifier] = nil // out with the old
                 self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
             }
             if let data = self._responseDataByTask[task.taskIdentifier] {
-                self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
+                self._responseDataByTask[task.taskIdentifier] = nil
                 self._responseDataByTask[newTask.taskIdentifier] = data
             }
         }
@@ -295,12 +297,10 @@ extension StableDiffusion: URLSessionDataDelegate {
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                completion(nil, AIError.clientSideNetworkError(error: error))
-                self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
-            }
+            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            completion(.failure(.clientSideNetworkError(error: error)))
+            self._completionByTask.removeValue(forKey: task.taskIdentifier)
+            self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
         }
     }
 
@@ -319,11 +319,9 @@ extension StableDiffusion: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         // Responses can arrive in chunks
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if var responseData = _responseDataByTask[dataTask.taskIdentifier] {
-                responseData.append(data)
-                _responseDataByTask[dataTask.taskIdentifier] = responseData
-            }
+            guard let self, var responseData = _responseDataByTask[dataTask.taskIdentifier] else { return }
+            responseData.append(data)
+            _responseDataByTask[dataTask.taskIdentifier] = responseData
         }
     }
 }

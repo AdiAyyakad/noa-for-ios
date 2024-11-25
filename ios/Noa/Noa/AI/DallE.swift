@@ -15,7 +15,7 @@ class DallE: NSObject {
     }
 
     private var _session: URLSession!
-    private var _completionByTask: [Int: (UIImage?, AIError?) -> Void] = [:]
+    private var _completionByTask: [Int: (Result<UIImage, AIError>) -> Void] = [:]
     private var _responseDataByTask: [Int: Data] = [:]
     private var _tempFileURL: URL?
 
@@ -42,12 +42,12 @@ class DallE: NSObject {
         }
     }
 
-    public func renderEdit(jpegFileData: Data, maskPNGFileData: Data?, prompt: String, apiKey: String, completion: @escaping (UIImage?, AIError?) -> Void) {
+    public func renderEdit(jpegFileData: Data, maskPNGFileData: Data?, prompt: String, apiKey: String, completion: @escaping (Result<UIImage, AIError>) -> Void) {
         // Convert JPEG to PNG and, if no mask supplied, mask off entire image by clearing the
         // alpha channel so that the entire image is redrawn
         guard let pngImageData = convertJPEGToPNG(jpegFileData: jpegFileData, clearAlphaChannel: maskPNGFileData == nil) else {
             DispatchQueue.main.async {
-                completion(nil, AIError.dataFormatError(message: "Unable to convert JPEG image to PNG data"))
+                completion(.failure(.dataFormatError(message: "Unable to convert JPEG image to PNG data")))
             }
             return
         }
@@ -143,7 +143,7 @@ class DallE: NSObject {
 
     private func deliverImage(for taskIdentifier: Int) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
             guard let completion = _completionByTask[taskIdentifier] else {
                 print("[DallE] Error: Lost completion data for task \(taskIdentifier)")
@@ -161,44 +161,50 @@ class DallE: NSObject {
             _responseDataByTask.removeValue(forKey: taskIdentifier)
 
             // Extract and deliver image
-            let (contentError, image) = self.extractContent(from: responseData)
-            completion(image, contentError)
+            let result = self.extractContent(from: responseData)
+            completion(result)
         }
     }
 
-    private func extractContent(from data: Data) -> (AIError?, UIImage?) {
+    private func extractContent(from data: Data) -> Result<UIImage, AIError> {
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
-            if let response = json as? [String: AnyObject] {
-                if let errorPayload = response["error"] as? [String: AnyObject],
-                   var errorMessage = errorPayload["message"] as? String {
-                    // Error from OpenAI
-                    if errorMessage.isEmpty {
-                        // This happens sometimes, try to see if there is an error code
-                        if let errorCode = errorPayload["code"] as? String,
-                           !errorCode.isEmpty {
-                            errorMessage = "Unable to respond. Error code: \(errorCode)"
-                        } else {
-                            errorMessage = "No response received. Ensure your API key is valid and try again."
-                        }
-                    }
-                    return (AIError.apiError(message: errorMessage), nil)
-                } else if let dataObject = response["data"] as? [[String: String]],
-                       dataObject.count > 0,
-                       let base64String = dataObject[0]["b64_json"],
-                       let base64Data = base64String.data(using: .utf8),
-                       let imageData = Data(base64Encoded: base64Data),
-                       let image = UIImage(data: imageData) {
-                    return (nil, image)
-                }
+            guard let response = json as? [String: AnyObject] else {
+                print("[DallE] Error: Unable to parse response")
+                return .failure(.responsePayloadParseError)
             }
-            print("[DallE] Error: Unable to parse response")
+            if let errorPayload = response["error"] as? [String: AnyObject],
+               var errorMessage = errorPayload["message"] as? String {
+                // Error from OpenAI
+                if errorMessage.isEmpty {
+                    // This happens sometimes, try to see if there is an error code
+                    if let errorCode = errorPayload["code"] as? String,
+                       !errorCode.isEmpty {
+                        errorMessage = "Unable to respond. Error code: \(errorCode)"
+                    } else {
+                        errorMessage = "No response received. Ensure your API key is valid and try again."
+                    }
+                }
+                return .failure(.apiError(message: errorMessage))
+            } else if let dataObject = response["data"] as? [[String: String]],
+                   dataObject.count > 0,
+                   let base64String = dataObject[0]["b64_json"],
+                   let base64Data = base64String.data(using: .utf8),
+                   let imageData = Data(base64Encoded: base64Data),
+                   let image = UIImage(data: imageData) {
+                return .success(image)
+            } else {
+                print("[DallE] Error: Unable to parse response")
+                return .failure(.responsePayloadParseError)
+            }
         } catch {
             print("[DallE] Error: Unable to deserialize response: \(error)")
+            return .failure(.responsePayloadParseError)
         }
-        return (AIError.responsePayloadParseError, nil)
     }
 }
+
+// MARK: - URLSessionDelegate
 
 extension DallE: URLSessionDelegate {
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
@@ -207,9 +213,9 @@ extension DallE: URLSessionDelegate {
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             for (_, completion) in self._completionByTask {
-                completion(nil, AIError.clientSideNetworkError(error: error))
+                completion(.failure(.clientSideNetworkError(error: error)))
             }
             _completionByTask = [:]
             _responseDataByTask = [:]
@@ -229,6 +235,8 @@ extension DallE: URLSessionDelegate {
         }
     }
 }
+
+// MARK: - URLSessionDataDelegate
 
 extension DallE: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome streamTask: URLSessionStreamTask) {
@@ -250,12 +258,10 @@ extension DallE: URLSessionDataDelegate {
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                if let completion = self._completionByTask[task.taskIdentifier] {
-                    completion(nil, AIError.urlAuthenticationFailed)
-                    self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                    self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
-                }
+                guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+                completion(.failure(.urlAuthenticationFailed))
+                self._completionByTask.removeValue(forKey: task.taskIdentifier)
+                self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
             }
         }
     }
@@ -273,7 +279,7 @@ extension DallE: URLSessionDataDelegate {
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             if let completion = self._completionByTask[task.taskIdentifier] {
                 self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
                 self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
@@ -301,12 +307,10 @@ extension DallE: URLSessionDataDelegate {
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                completion(nil, AIError.clientSideNetworkError(error: error))
-                self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
-            }
+            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            completion(.failure(.clientSideNetworkError(error: error)))
+            self._completionByTask.removeValue(forKey: task.taskIdentifier)
+            self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
         }
     }
 
@@ -325,11 +329,9 @@ extension DallE: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         // Responses can arrive in chunks
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            if var responseData = _responseDataByTask[dataTask.taskIdentifier] {
-                responseData.append(data)
-                _responseDataByTask[dataTask.taskIdentifier] = responseData
-            }
+            guard let self, var responseData = _responseDataByTask[dataTask.taskIdentifier] else { return }
+            responseData.append(data)
+            _responseDataByTask[dataTask.taskIdentifier] = responseData
         }
     }
 }
