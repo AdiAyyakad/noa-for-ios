@@ -10,6 +10,7 @@
 		352D27F82A7B01820019EFDB /* SpinningMonocle.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */; };
 		403C026C2CF4517A00E7B24F /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 403C026B2CF4517A00E7B24F /* ComposableArchitecture */; };
 		40C98F3A2CF43C2E00E6946F /* ControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C98F392CF43C2E00E6946F /* ControllerTests.swift */; };
+		40CA53F32D1DA29400FC9805 /* Overture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40CA53F22D1DA29400FC9805 /* Overture.swift */; };
 		CC00398B2A6A4F11009E3BAC /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */; };
 		CC0039A12A6DA51A009E3BAC /* PopupDeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0039A02A6DA51A009E3BAC /* PopupDeviceView.swift */; };
 		CC0039A52A6DA57E009E3BAC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0039A42A6DA57E009E3BAC /* ContentView.swift */; };
@@ -100,6 +101,7 @@
 /* Begin PBXFileReference section */
 		352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = SpinningMonocle.mp4; sourceTree = "<group>"; };
 		40C98F392CF43C2E00E6946F /* ControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTests.swift; sourceTree = "<group>"; };
+		40CA53F22D1DA29400FC9805 /* Overture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Overture.swift; sourceTree = "<group>"; };
 		CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
 		CC0039A02A6DA51A009E3BAC /* PopupDeviceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupDeviceView.swift; sourceTree = "<group>"; };
 		CC0039A42A6DA57E009E3BAC /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -451,6 +453,7 @@
 				CC07BD9A2A1962DC0082999A /* M4AWriter.swift */,
 				CC212D692A9D6FDB0093479F /* CVPixelBuffer+Extensions.swift */,
 				CC16323F2AA6A0AC006A8E6A /* RGB343.swift */,
+				40CA53F22D1DA29400FC9805 /* Overture.swift */,
 			);
 			path = Util;
 			sourceTree = "<group>";
@@ -646,6 +649,7 @@
 				CC3FE01F2A0DF21700756941 /* AppDelegate.swift in Sources */,
 				CC3FE0212A0DF25100756941 /* SceneDelegate.swift in Sources */,
 				CCF9DA832A5C9DFB004C1EAE /* APIKeyPopupBoxView.swift in Sources */,
+				40CA53F32D1DA29400FC9805 /* Overture.swift in Sources */,
 				CCCECE6B2A1EB4B100DBB7CA /* Whisper.swift in Sources */,
 				CCF9DA812A5C9C46004C1EAE /* SettingsMenuView.swift in Sources */,
 				CC07BD9B2A1962DC0082999A /* M4AWriter.swift in Sources */,

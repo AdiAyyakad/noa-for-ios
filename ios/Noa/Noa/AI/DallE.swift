@@ -5,6 +5,7 @@
 //  Created by Bart Trzynadlowski on 8/25/23.
 //
 
+import OSLog
 import UIKit
 
 class DallE: NSObject {
@@ -14,21 +15,20 @@ class DallE: NSObject {
         case backgroundUpload
     }
 
-    private var _session: URLSession!
-    private var _completionByTask: [Int: (Result<UIImage, AIError>) -> Void] = [:]
-    private var _responseDataByTask: [Int: Data] = [:]
-    private var _tempFileURL: URL?
+    private var session: URLSession!
+    private var completionByTask: [Int: (Result<UIImage, AIError>) -> Void] = [:]
+    private var responseDataByTask: [Int: Data] = [:]
+    private var tempFileURL: URL?
 
     public init(configuration: NetworkConfiguration) {
         super.init()
 
         switch configuration {
         case .normal:
-            _session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         case .backgroundUpload:
-            // Background upload tasks use a file (uploadTask() can only be called from background
-            // with a file)
-            _tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
+            // Background upload tasks use a file (uploadTask() can only be called from background with a file)
+            tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
             fallthrough
         case .backgroundData:
             // Configure a URL session that supports background transfers
@@ -38,7 +38,7 @@ class DallE: NSObject {
             configuration.sessionSendsLaunchEvents = true
             configuration.allowsConstrainedNetworkAccess = true
             configuration.allowsExpensiveNetworkAccess = true
-            _session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         }
     }
 
@@ -102,7 +102,7 @@ class DallE: NSObject {
         formData.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
         // If this is a background task using a file, write that file, else attach to request
-        if let fileURL = _tempFileURL {
+        if let fileURL = tempFileURL {
             //TODO: error handling
             try? formData.write(to: fileURL)
         } else {
@@ -110,59 +110,59 @@ class DallE: NSObject {
         }
 
         // Create task
-        let task = _tempFileURL == nil ? _session.dataTask(with: request) : _session.uploadTask(with: request, fromFile: _tempFileURL!)
+        let task = tempFileURL == nil ? session.dataTask(with: request) : session.uploadTask(with: request, fromFile: tempFileURL!)
 
         // Associate completion handler and a buffer with this task
-        _completionByTask[task.taskIdentifier] = completion
-        _responseDataByTask[task.taskIdentifier] = Data()
+        completionByTask[task.taskIdentifier] = completion
+        responseDataByTask[task.taskIdentifier] = Data()
 
         // Begin
         task.resume()
     }
 
     private func convertJPEGToPNG(jpegFileData: Data, clearAlphaChannel: Bool) -> Data? {
-        if let jpegImage = UIImage(data: jpegFileData),
-           let pixelBuffer = jpegImage.toPixelBuffer() {
-            if clearAlphaChannel {
-                pixelBuffer.clearAlpha()
-            }
-            if let maskedImage = UIImage(pixelBuffer: pixelBuffer) {
-                if let pngData = maskedImage.pngData() {
-                    return pngData
-                } else {
-                    print("[DallE] Error: Failed to produce PNG encoded image")
-                }
-            } else {
-                print("[DallE] Error: Failed to convert pixel buffer to UIImage")
-            }
-        } else {
-            print("[DallE] Error: Unable to convert JPEG image data to a pixel buffer")
+        guard
+            let jpegImage = UIImage(data: jpegFileData),
+            let pixelBuffer = jpegImage.toPixelBuffer()
+        else {
+            Logger.dalle.log("[DallE] Error: Unable to convert JPEG image data to a pixel buffer")
+            return nil
         }
-        return nil
+        if clearAlphaChannel {
+            pixelBuffer.clearAlpha()
+        }
+        guard let maskedImage = UIImage(pixelBuffer: pixelBuffer) else {
+            Logger.dalle.log("[DallE] Error: Failed to convert pixel buffer to UIImage")
+            return nil
+        }
+        guard let pngData = maskedImage.pngData() else {
+            Logger.dalle.log("[DallE] Error: Failed to produce PNG encoded image")
+            return nil
+        }
+        return pngData
     }
 
     private func deliverImage(for taskIdentifier: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 
-            guard let completion = _completionByTask[taskIdentifier] else {
-                print("[DallE] Error: Lost completion data for task \(taskIdentifier)")
-                _responseDataByTask.removeValue(forKey: taskIdentifier)
+            guard let completion = completionByTask[taskIdentifier] else {
+                Logger.dalle.log("[DallE] Error: Lost completion data for task \(taskIdentifier)")
+                responseDataByTask[taskIdentifier] = nil
                 return
             }
 
-            _completionByTask.removeValue(forKey: taskIdentifier)
+            completionByTask[taskIdentifier] = nil
 
-            guard let responseData = _responseDataByTask[taskIdentifier] else {
-                print("[DallE] Error: Lost response data for task \(taskIdentifier)")
+            guard let responseData = responseDataByTask[taskIdentifier] else {
+                Logger.dalle.log("[DallE] Error: Lost response data for task \(taskIdentifier)")
                 return
             }
 
-            _responseDataByTask.removeValue(forKey: taskIdentifier)
+            responseDataByTask[taskIdentifier] = nil
 
             // Extract and deliver image
-            let result = self.extractContent(from: responseData)
-            completion(result)
+            completion(extractContent(from: responseData))
         }
     }
 
@@ -170,7 +170,7 @@ class DallE: NSObject {
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
             guard let response = json as? [String: AnyObject] else {
-                print("[DallE] Error: Unable to parse response")
+                Logger.dalle.log("[DallE] Error: Unable to parse response")
                 return .failure(.responsePayloadParseError)
             }
             if let errorPayload = response["error"] as? [String: AnyObject],
@@ -194,11 +194,11 @@ class DallE: NSObject {
                    let image = UIImage(data: imageData) {
                 return .success(image)
             } else {
-                print("[DallE] Error: Unable to parse response")
+                Logger.dalle.log("[DallE] Error: Unable to parse response")
                 return .failure(.responsePayloadParseError)
             }
         } catch {
-            print("[DallE] Error: Unable to deserialize response: \(error)")
+            Logger.dalle.log("[DallE] Error: Unable to deserialize response: \(error)")
             return .failure(.responsePayloadParseError)
         }
     }
@@ -208,31 +208,31 @@ class DallE: NSObject {
 
 extension DallE: URLSessionDelegate {
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
-        let errorMessage = error == nil ? "unknown error" : error!.localizedDescription
-        print("[DallE] URLSession became invalid: \(errorMessage)")
+        let errorMessage = error?.localizedDescription ?? "unknown error"
+        Logger.dalle.log("[DallE] URLSession became invalid: \(errorMessage)")
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            for (_, completion) in self._completionByTask {
+            for (_, completion) in completionByTask {
                 completion(.failure(.clientSideNetworkError(error: error)))
             }
-            _completionByTask = [:]
-            _responseDataByTask = [:]
+            completionByTask = [:]
+            responseDataByTask = [:]
         }
     }
 
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        print("[DallE] URLSession finished events")
+        Logger.dalle.log("[DallE] URLSession finished events")
     }
 
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[DallE] URLSession received challenge")
-        if let trust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            print("[DallE] URLSession unable to use credential")
+        Logger.dalle.log("[DallE] URLSession received challenge")
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            Logger.dalle.log("[DallE] URLSession unable to use credential")
+            return
         }
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 }
 
@@ -240,53 +240,54 @@ extension DallE: URLSessionDelegate {
 
 extension DallE: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome streamTask: URLSessionStreamTask) {
-        print("[DallE] URLSessionDataTask became stream task")
+        Logger.dalle.log("[DallE] URLSessionDataTask became stream task")
         streamTask.resume()
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome downloadTask: URLSessionDownloadTask) {
-        print("[DallE] URLSessionDataTask became download task")
+        Logger.dalle.log("[DallE] URLSessionDataTask became download task")
         downloadTask.resume()
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[DallE] URLSessionDataTask received challenge")
-        if let trust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            print("[DallE] URLSessionDataTask unable to use credential")
+        Logger.dalle.log("[DallE] URLSessionDataTask received challenge")
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            Logger.dalle.log("[DallE] URLSessionDataTask unable to use credential")
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+                guard let self, let completion = completionByTask[task.taskIdentifier] else { return }
                 completion(.failure(.urlAuthenticationFailed))
-                self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
+                completionByTask[task.taskIdentifier] = nil
+                responseDataByTask[task.taskIdentifier] = nil
             }
+            return
         }
+
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         // Original request was redirected somewhere else. Create a new task for redirection.
         if let urlString = request.url?.absoluteString {
-            print("[DallE] URLSessionDataTask redirected to \(urlString)")
+            Logger.dalle.log("[DallE] URLSessionDataTask redirected to \(urlString)")
         } else {
-            print("[DallE] URLSessionDataTask redirected")
+            Logger.dalle.log("[DallE] URLSessionDataTask redirected")
         }
 
         // New task
-        let newTask = self._session.dataTask(with: request)
+        let newTask = self.session.dataTask(with: request)
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
-                self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
+            if let completion = completionByTask[task.taskIdentifier] {
+                completionByTask[task.taskIdentifier] = nil // out with the old
+                completionByTask[newTask.taskIdentifier] = completion // in with the new
             }
-            if let data = self._responseDataByTask[task.taskIdentifier] {
-                self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
-                self._responseDataByTask[newTask.taskIdentifier] = data
+            if let data = responseDataByTask[task.taskIdentifier] {
+                responseDataByTask[task.taskIdentifier] = nil
+                responseDataByTask[newTask.taskIdentifier] = data
             }
         }
 
@@ -296,44 +297,44 @@ extension DallE: URLSessionDataDelegate {
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
-            print("[DallE] URLSessionDataTask failed to complete: \(error.localizedDescription)")
+            Logger.dalle.log("[DallE] URLSessionDataTask failed to complete: \(error.localizedDescription)")
         } else {
             // Error == nil should indicate successful completion. Process final result.
             deliverImage(for: task.taskIdentifier)
-            print("[DallE] URLSessionDataTask finished")
+            Logger.dalle.log("[DallE] URLSessionDataTask finished")
         }
 
         // If there really was no error, we should have received data, triggered the completion,
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            guard let self, let completion = completionByTask[task.taskIdentifier] else { return }
             completion(.failure(.clientSideNetworkError(error: error)))
-            self._completionByTask.removeValue(forKey: task.taskIdentifier)
-            self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
+            completionByTask[task.taskIdentifier] = nil
+            responseDataByTask[task.taskIdentifier] = nil
         }
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         // Assume that regardless of any error (including non-200 status code), the didCompleteWithError
         // delegate method will eventually be called and we can report the error there
-        print("[DallE] URLSessionDataTask received response headers")
+        Logger.dalle.log("[DallE] URLSessionDataTask received response headers")
         guard let response = response as? HTTPURLResponse else {
-            print("[DallE] URLSessionDataTask received unknown response type")
+            Logger.dalle.log("[DallE] URLSessionDataTask received unknown response type")
             return
         }
-        print("[DallE] URLSessionDataTask received response code \(response.statusCode)")
+        Logger.dalle.log("[DallE] URLSessionDataTask received response code \(response.statusCode)")
         completionHandler(URLSession.ResponseDisposition.allow)
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         // Responses can arrive in chunks
         DispatchQueue.main.async { [weak self] in
-            guard let self, var responseData = _responseDataByTask[dataTask.taskIdentifier] else { return }
-            responseData.append(data)
-            _responseDataByTask[dataTask.taskIdentifier] = responseData
+            self?.responseDataByTask[dataTask.taskIdentifier]?.append(data)
         }
     }
 }
 
-
+extension Logger {
+    static let dalle = Logger(subsystem: "Service", category: "DallE")
+}

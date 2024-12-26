@@ -5,6 +5,7 @@
 //  Created by Bart Trzynadlowski on 8/28/23.
 //
 
+import OSLog
 import UIKit
 
 class StableDiffusion: NSObject {
@@ -14,21 +15,21 @@ class StableDiffusion: NSObject {
         case backgroundUpload
     }
 
-    private var _session: URLSession!
-    private var _completionByTask: [Int: (Result<UIImage, AIError>) -> Void] = [:]
-    private var _responseDataByTask: [Int: Data] = [:]
-    private var _tempFileURL: URL?
+    private var session: URLSession!
+    private var completionByTask: [Int: (Result<UIImage, AIError>) -> Void] = [:]
+    private var responseDataByTask: [Int: Data] = [:]
+    private var tempFileURL: URL?
 
     public init(configuration: NetworkConfiguration) {
         super.init()
 
         switch configuration {
         case .normal:
-            _session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         case .backgroundUpload:
             // Background upload tasks use a file (uploadTask() can only be called from background
             // with a file)
-            _tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
+            tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
             fallthrough
         case .backgroundData:
             // Configure a URL session that supports background transfers
@@ -38,7 +39,7 @@ class StableDiffusion: NSObject {
             configuration.sessionSendsLaunchEvents = true
             configuration.allowsConstrainedNetworkAccess = true
             configuration.allowsExpensiveNetworkAccess = true
-            _session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         }
     }
 
@@ -106,7 +107,7 @@ class StableDiffusion: NSObject {
         formData.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
         // If this is a background task using a file, write that file, else attach to request
-        if let fileURL = _tempFileURL {
+        if let fileURL = tempFileURL {
             //TODO: error handling
             try? formData.write(to: fileURL)
         } else {
@@ -114,16 +115,16 @@ class StableDiffusion: NSObject {
         }
 
         // Create task
-        let task = _tempFileURL == nil ? _session.dataTask(with: request) : _session.uploadTask(with: request, fromFile: _tempFileURL!)
+        let task: URLSessionDataTask = tempFileURL.flatMap(curry(session.uploadTask)(request)) ?? session.dataTask(with: request)
 
         // Associate completion handler and a buffer with this task
-        _completionByTask[task.taskIdentifier] = completion
-        _responseDataByTask[task.taskIdentifier] = Data()
+        completionByTask[task.taskIdentifier] = completion
+        responseDataByTask[task.taskIdentifier] = Data()
 
         // Begin
         task.resume()
 
-        print("[StableDiffusion] Submitted image2image request with: model=\(model), strength=\(strength), guidance=\(guidance), prompt=\(prompt)")
+        Logger.stableDiffusion.log("[StableDiffusion] Submitted image2image request with: model=\(model), strength=\(strength), guidance=\(guidance), prompt=\(prompt)")
     }
 
     /// Given a UIImage, expands it so that each side is the next integral multiple of 64 (as
@@ -146,23 +147,23 @@ class StableDiffusion: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 
-            guard let completion = _completionByTask[taskIdentifier] else {
-                print("[StableDiffusion] Error: Lost completion data for task \(taskIdentifier)")
-                _responseDataByTask.removeValue(forKey: taskIdentifier)
+            guard let completion = completionByTask[taskIdentifier] else {
+                Logger.stableDiffusion.log("[StableDiffusion] Error: Lost completion data for task \(taskIdentifier)")
+                responseDataByTask.removeValue(forKey: taskIdentifier)
                 return
             }
 
-            _completionByTask.removeValue(forKey: taskIdentifier)
+            completionByTask.removeValue(forKey: taskIdentifier)
 
-            guard let responseData = _responseDataByTask[taskIdentifier] else {
-                print("[StableDiffusion] Error: Lost response data for task \(taskIdentifier)")
+            guard let responseData = responseDataByTask[taskIdentifier] else {
+                Logger.stableDiffusion.log("[StableDiffusion] Error: Lost response data for task \(taskIdentifier)")
                 return
             }
 
-            _responseDataByTask.removeValue(forKey: taskIdentifier)
+            responseDataByTask.removeValue(forKey: taskIdentifier)
 
             // Extract and deliver image
-            let result = self.extractContent(from: responseData)
+            let result = extractContent(from: responseData)
             completion(result)
         }
     }
@@ -171,7 +172,7 @@ class StableDiffusion: NSObject {
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
             guard let response = json as? [String: AnyObject] else {
-                print("[StableDiffusion] Error: Unable to parse response")
+                Logger.stableDiffusion.log("[StableDiffusion] Error: Unable to parse response")
                 return .failure(.responsePayloadParseError)
             }
             if let errorType = response["name"] as? String {
@@ -188,11 +189,11 @@ class StableDiffusion: NSObject {
                    let image = UIImage(data: imageData) {
                 return .success(image)
             } else {
-                print("[StableDiffusion] Error: Unable to parse response")
+                Logger.stableDiffusion.log("[StableDiffusion] Error: Unable to parse response")
                 return .failure(.responsePayloadParseError)
             }
         } catch {
-            print("[StableDiffusion] Error: Unable to deserialize response: \(error)")
+            Logger.stableDiffusion.log("[StableDiffusion] Error: Unable to deserialize response: \(error)")
             return .failure(.responsePayloadParseError)
         }
     }
@@ -201,82 +202,83 @@ class StableDiffusion: NSObject {
 extension StableDiffusion: URLSessionDelegate {
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
         let errorMessage = error == nil ? "unknown error" : error!.localizedDescription
-        print("[StableDiffusion] URLSession became invalid: \(errorMessage)")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSession became invalid: \(errorMessage)")
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            for (_, completion) in self._completionByTask {
+            for (_, completion) in completionByTask {
                 completion(.failure(.clientSideNetworkError(error: error)))
             }
-            _completionByTask = [:]
-            _responseDataByTask = [:]
+            completionByTask = [:]
+            responseDataByTask = [:]
         }
     }
 
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        print("[StableDiffusion] URLSession finished events")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSession finished events")
     }
 
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[StableDiffusion] URLSession received challenge")
-        if let trust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            print("[StableDiffusion] URLSession unable to use credential")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSession received challenge")
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            Logger.stableDiffusion.log("[StableDiffusion] URLSession unable to use credential")
+            return
         }
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 }
 
 extension StableDiffusion: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome streamTask: URLSessionStreamTask) {
-        print("[StableDiffusion] URLSessionDataTask became stream task")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask became stream task")
         streamTask.resume()
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome downloadTask: URLSessionDownloadTask) {
-        print("[StableDiffusion] URLSessionDataTask became download task")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask became download task")
         downloadTask.resume()
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[StableDiffusion] URLSessionDataTask received challenge")
-        if let trust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            print("[StableDiffusion] URLSessionDataTask unable to use credential")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask received challenge")
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask unable to use credential")
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+                guard let self, let completion = completionByTask[task.taskIdentifier] else { return }
                 completion(.failure(.urlAuthenticationFailed))
-                self._completionByTask[task.taskIdentifier] = nil
-                self._responseDataByTask[task.taskIdentifier] = nil
+                completionByTask[task.taskIdentifier] = nil
+                responseDataByTask[task.taskIdentifier] = nil
             }
+            return
         }
+
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         // Original request was redirected somewhere else. Create a new task for redirection.
         if let urlString = request.url?.absoluteString {
-            print("[StableDiffusion] URLSessionDataTask redirected to \(urlString)")
+            Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask redirected to \(urlString)")
         } else {
-            print("[StableDiffusion] URLSessionDataTask redirected")
+            Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask redirected")
         }
 
         // New task
-        let newTask = self._session.dataTask(with: request)
+        let newTask = self.session.dataTask(with: request)
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if let completion = self._completionByTask[task.taskIdentifier] {
-                self._completionByTask[task.taskIdentifier] = nil // out with the old
-                self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
+            if let completion = completionByTask[task.taskIdentifier] {
+                completionByTask[task.taskIdentifier] = nil // out with the old
+                completionByTask[newTask.taskIdentifier] = completion     // in with the new
             }
-            if let data = self._responseDataByTask[task.taskIdentifier] {
-                self._responseDataByTask[task.taskIdentifier] = nil
-                self._responseDataByTask[newTask.taskIdentifier] = data
+            if let data = responseDataByTask[task.taskIdentifier] {
+                responseDataByTask[task.taskIdentifier] = nil
+                responseDataByTask[newTask.taskIdentifier] = data
             }
         }
 
@@ -286,44 +288,44 @@ extension StableDiffusion: URLSessionDataDelegate {
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
-            print("[StableDiffusion] URLSessionDataTask failed to complete: \(error.localizedDescription)")
+            Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask failed to complete: \(error.localizedDescription)")
         } else {
             // Error == nil should indicate successful completion. Process final result.
             deliverImage(for: task.taskIdentifier)
-            print("[StableDiffusion] URLSessionDataTask finished")
+            Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask finished")
         }
 
         // If there really was no error, we should have received data, triggered the completion,
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
+            guard let self, let completion = completionByTask[task.taskIdentifier] else { return }
             completion(.failure(.clientSideNetworkError(error: error)))
-            self._completionByTask.removeValue(forKey: task.taskIdentifier)
-            self._responseDataByTask.removeValue(forKey: task.taskIdentifier)
+            completionByTask.removeValue(forKey: task.taskIdentifier)
+            responseDataByTask.removeValue(forKey: task.taskIdentifier)
         }
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         // Assume that regardless of any error (including non-200 status code), the didCompleteWithError
         // delegate method will eventually be called and we can report the error there
-        print("[StableDiffusion] URLSessionDataTask received response headers")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask received response headers")
         guard let response = response as? HTTPURLResponse else {
-            print("[StableDiffusion] URLSessionDataTask received unknown response type")
+            Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask received unknown response type")
             return
         }
-        print("[StableDiffusion] URLSessionDataTask received response code \(response.statusCode)")
+        Logger.stableDiffusion.log("[StableDiffusion] URLSessionDataTask received response code \(response.statusCode)")
         completionHandler(URLSession.ResponseDisposition.allow)
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         // Responses can arrive in chunks
         DispatchQueue.main.async { [weak self] in
-            guard let self, var responseData = _responseDataByTask[dataTask.taskIdentifier] else { return }
-            responseData.append(data)
-            _responseDataByTask[dataTask.taskIdentifier] = responseData
+            self?.responseDataByTask[dataTask.taskIdentifier]?.append(data)
         }
     }
 }
 
-
+extension Logger {
+    static let stableDiffusion = Logger(subsystem: "Service", category: "StableDiffusion")
+}

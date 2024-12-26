@@ -54,6 +54,7 @@
 //    *** END 21:52:47
 //
 
+import OSLog
 import UIKit
 
 class Whisper: NSObject {
@@ -73,20 +74,20 @@ class Whisper: NSObject {
         case m4a = "m4a"
     }
 
-    private var _session: URLSession!
-    private var _completionByTask: [Int: (Result<String, AIError>) -> Void] = [:]
-    private var _tempFileURL: URL?
+    private var session: URLSession!
+    private var completionByTask: [Int: (Result<String, AIError>) -> Void] = [:]
+    private var tempFileURL: URL?
 
     public init(configuration: NetworkConfiguration) {
         super.init()
 
         switch configuration {
         case .normal:
-            _session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         case .backgroundUpload:
             // Background upload tasks use a file (uploadTask() can only be called from background
             // with a file)
-            _tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
+            tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
             fallthrough
         case .backgroundData:
             // Configure a URL session that supports background transfers
@@ -96,7 +97,7 @@ class Whisper: NSObject {
             configuration.sessionSendsLaunchEvents = true
             configuration.allowsConstrainedNetworkAccess = true
             configuration.allowsExpensiveNetworkAccess = true
-            _session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         }
     }
 
@@ -144,7 +145,7 @@ class Whisper: NSObject {
         formData.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
         // If this is a background task using a file, write that file, else attach to request
-        if let fileURL = _tempFileURL {
+        if let fileURL = tempFileURL {
             //TODO: error handling
             try? formData.write(to: fileURL)
         } else {
@@ -152,10 +153,10 @@ class Whisper: NSObject {
         }
 
         // Create task
-        let task = _tempFileURL == nil ? _session.dataTask(with: request) : _session.uploadTask(with: request, fromFile: _tempFileURL!)
+        let task: URLSessionDataTask = tempFileURL.flatMap(curry(session.uploadTask)(request)) ?? session.dataTask(with: request)
 
         // Associate completion handler with this task
-        _completionByTask[task.taskIdentifier] = completion
+        completionByTask[task.taskIdentifier] = completion
 
         // Begin
         task.resume()
@@ -169,11 +170,11 @@ private extension Whisper {
         do {
             let jsonString = String(decoding: data, as: UTF8.self)
             if jsonString.count > 0 {
-                print("[Whisper] Response payload: \(jsonString)")
+                Logger.whisper.log("[Whisper] Response payload: \(jsonString)")
             }
             let json = try JSONSerialization.jsonObject(with: data, options: [])
             guard let response = json as? [String: AnyObject] else {
-                print("[Whisper] Error: Unable to parse response")
+                Logger.whisper.log("[Whisper] Error: Unable to parse response")
                 return .failure(.responsePayloadParseError)
             }
             if let errorPayload = response["error"] as? [String: AnyObject],
@@ -192,11 +193,11 @@ private extension Whisper {
             } else if let text = response["text"] as? String {
                 return .success(text)
             } else {
-                print("[Whisper] Error: Unable to parse response")
+                Logger.whisper.log("[Whisper] Error: Unable to parse response")
                 return .failure(.responsePayloadParseError)
             }
         } catch {
-            print("[Whisper] Error: Unable to deserialize response: \(error)")
+            Logger.whisper.log("[Whisper] Error: Unable to deserialize response: \(error)")
             return .failure(.responsePayloadParseError)
         }
     }
@@ -207,29 +208,29 @@ private extension Whisper {
 extension Whisper: URLSessionDelegate {
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
         let errorMessage = error == nil ? "unknown error" : error!.localizedDescription
-        print("[Whisper] URLSession became invalid: \(errorMessage)")
+        Logger.whisper.log("[Whisper] URLSession became invalid: \(errorMessage)")
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            for (_, completion) in self._completionByTask {
+            for (_, completion) in completionByTask {
                 completion(.failure(.clientSideNetworkError(error: error)))
             }
-            _completionByTask = [:]
+            completionByTask = [:]
         }
     }
 
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        print("[Whisper] URLSession finished events")
+        Logger.whisper.log("[Whisper] URLSession finished events")
     }
 
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[Whisper] URLSession received challenge")
-        if let trust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            print("[Whisper] URLSession unable to use credential")
+        Logger.whisper.log("[Whisper] URLSession received challenge")
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            Logger.whisper.log("[Whisper] URLSession unable to use credential")
+            return
         }
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 }
 
@@ -237,49 +238,43 @@ extension Whisper: URLSessionDelegate {
 
 extension Whisper: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome streamTask: URLSessionStreamTask) {
-        print("[Whisper] URLSessionDataTask became stream task")
+        Logger.whisper.log("[Whisper] URLSessionDataTask became stream task")
         streamTask.resume()
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome downloadTask: URLSessionDownloadTask) {
-        print("[Whisper] URLSessionDataTask became download task")
+        Logger.whisper.log("[Whisper] URLSessionDataTask became download task")
         downloadTask.resume()
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[Whisper] URLSessionDataTask received challenge")
-        if let trust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            print("[Whisper] URLSessionDataTask unable to use credential")
-
-            // Deliver error
+        Logger.whisper.log("[Whisper] URLSessionDataTask received challenge")
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            Logger.whisper.log("[Whisper] URLSessionDataTask unable to use credential")
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if let completion = self._completionByTask[task.taskIdentifier] {
-                    completion(.failure(AIError.urlAuthenticationFailed))
-                    self._completionByTask.removeValue(forKey: task.taskIdentifier)
-                }
+                self?.completionByTask.removeValue(forKey: task.taskIdentifier)?(.failure(AIError.urlAuthenticationFailed))
             }
+            return
         }
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         // Original request was redirected somewhere else. Create a new task for redirection.
         if let urlString = request.url?.absoluteString {
-            print("[Whisper] URLSessionDataTask redirected to \(urlString)")
+            Logger.whisper.log("[Whisper] URLSessionDataTask redirected to \(urlString)")
         } else {
-            print("[Whisper] URLSessionDataTask redirected")
+            Logger.whisper.log("[Whisper] URLSessionDataTask redirected")
         }
 
         // New task
-        let newTask = self._session.dataTask(with: request)
+        let newTask = self.session.dataTask(with: request)
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
-            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
-            self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
-            self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
+            guard let self, let completion = completionByTask[task.taskIdentifier] else { return }
+            completionByTask[task.taskIdentifier] = nil // out with the old
+            completionByTask[newTask.taskIdentifier] = completion // in with the new
         }
 
         // Continue with new task
@@ -288,45 +283,42 @@ extension Whisper: URLSessionDataDelegate {
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
-            print("[Whisper] URLSessionDataTask failed to complete: \(error.localizedDescription)")
+            Logger.whisper.log("[Whisper] URLSessionDataTask failed to complete: \(error.localizedDescription)")
         } else {
             // Error == nil should indicate successful completion
-            print("[Whisper] URLSessionDataTask finished")
+            Logger.whisper.log("[Whisper] URLSessionDataTask finished")
         }
 
         // If there really was no error, we should have received data, triggered the completion,
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
-            completion(.failure(.clientSideNetworkError(error: error)))
-            self._completionByTask.removeValue(forKey: task.taskIdentifier)
+            self?.completionByTask.removeValue(forKey: task.taskIdentifier)?(.failure(.clientSideNetworkError(error: error)))
         }
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         // Assume that regardless of any error (including non-200 status code), the didCompleteWithError
         // delegate method will eventually be called and we can report the error there
-        print("[Whisper] URLSessionDataTask received response headers")
+        Logger.whisper.log("[Whisper] URLSessionDataTask received response headers")
         guard let response = response as? HTTPURLResponse else {
-            print("[Whisper] URLSessionDataTask received unknown response type")
+            Logger.whisper.log("[Whisper] URLSessionDataTask received unknown response type")
             return
         }
-        print("[Whisper] URLSessionDataTask received response code \(response.statusCode)")
-        completionHandler(URLSession.ResponseDisposition.allow)
+        Logger.whisper.log("[Whisper] URLSessionDataTask received response code \(response.statusCode)")
+        completionHandler(.allow)
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let result = self.extractContent(from: data)
+        let result = extractContent(from: data)
 
         // Deliver response
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if let completion = self._completionByTask[dataTask.taskIdentifier] {
-                completion(result)
-                self._completionByTask.removeValue(forKey: dataTask.taskIdentifier)
-            }
+            self?.completionByTask.removeValue(forKey: dataTask.taskIdentifier)?(result)
         }
     }
 }
 
+extension Logger {
+    static let whisper = Logger(subsystem: "Service", category: "Whisper")
+}

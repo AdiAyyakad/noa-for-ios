@@ -5,6 +5,7 @@
 //  Created by Bart Trzynadlowski on 5/12/23.
 //
 
+import OSLog
 import UIKit
 
 public class ChatGPT: NSObject {
@@ -17,18 +18,24 @@ public class ChatGPT: NSObject {
     public enum Mode {
         case assistant
         case translator
+
+        var prompt: String {
+            switch self {
+            case .assistant:
+                "You are a smart assistant that answers all user queries, questions, and statements with a single sentence."
+            case .translator:
+                "You are a smart assistant that translates user input to English. Translate as faithfully as you can and do not add any other commentary."
+            }
+        }
     }
 
     private static let _maxTokens = 4000    // 4096 for gpt-3.5-turbo and larger for gpt-4, but we use a conservative number to avoid hitting that limit
 
-    private var _session: URLSession!
-    private var _completionByTask: [Int: (Result<String, AIError>) -> Void] = [:]
-    private var _tempFileURL: URL?
+    private var session: URLSession!
+    private var completionByTask: [Int: (Result<String, AIError>) -> Void] = [:]
+    private var tempFileURL: URL?
 
-    private static let _assistantPrompt = "You are a smart assistant that answers all user queries, questions, and statements with a single sentence."
-    private static let _translatorPrompt = "You are a smart assistant that translates user input to English. Translate as faithfully as you can and do not add any other commentary."
-
-    private var _payload: [String: Any] = [
+    private var payload: [String: Any] = [
         "model": "gpt-3.5-turbo",
         "messages": [
             [
@@ -43,11 +50,10 @@ public class ChatGPT: NSObject {
 
         switch configuration {
         case .normal:
-            _session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         case .backgroundUpload:
-            // Background upload tasks use a file (uploadTask() can only be called from background
-            // with a file)
-            _tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
+            // Background upload tasks use a file (uploadTask() can only be called from background with a file)
+            tempFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent(UUID().uuidString)
             fallthrough
         case .backgroundData:
             // Configure a URL session that supports background transfers
@@ -57,17 +63,17 @@ public class ChatGPT: NSObject {
             configuration.sessionSendsLaunchEvents = true
             configuration.allowsConstrainedNetworkAccess = true
             configuration.allowsExpensiveNetworkAccess = true
-            _session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         }
     }
 
     public func clearHistory() {
         // To clear history, remove all but the very first message
-        if var messages = _payload["messages"] as? [[String: String]],
+        if var messages = payload["messages"] as? [[String: String]],
            messages.count > 1 {
             messages.removeSubrange(1..<messages.count)
-            _payload["messages"] = messages
-            print("[ChatGPT] Cleared history")
+            payload["messages"] = messages
+            Logger.chatGpt.log("[ChatGPT] Cleared history")
         }
     }
 
@@ -77,19 +83,19 @@ public class ChatGPT: NSObject {
             "Content-Type": "application/json"
         ]
 
-        _payload["model"] = model
+        payload["model"] = model
         setSystemPrompt(for: mode)
 
         appendUserQueryToChatSession(query: query)
 
-        let jsonPayload = try? JSONSerialization.data(withJSONObject: _payload)
+        let jsonPayload = try? JSONSerialization.data(withJSONObject: payload)
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.allHTTPHeaderFields = requestHeader
 
         // If this is a background task using a file, write that file, else attach to request
-        if let fileURL = _tempFileURL {
+        if let fileURL = tempFileURL {
             //TODO: error handling
             try? jsonPayload?.write(to: fileURL)
         } else {
@@ -97,36 +103,36 @@ public class ChatGPT: NSObject {
         }
 
         // Create task
-        let task = _tempFileURL == nil ? _session.dataTask(with: request) : _session.uploadTask(with: request, fromFile: _tempFileURL!)
+        let task = tempFileURL == nil ? session.dataTask(with: request) : session.uploadTask(with: request, fromFile: tempFileURL!)
 
         // Associate completion handler with this task
-        _completionByTask[task.taskIdentifier] = completion
+        completionByTask[task.taskIdentifier] = completion
 
         // Begin
         task.resume()
     }
 
     private func setSystemPrompt(for mode: Mode) {
-        if var messages = _payload["messages"] as? [[String: String]],
+        if var messages = payload["messages"] as? [[String: String]],
            messages.count >= 1 {
-            messages[0]["content"] = mode == .assistant ? Self._assistantPrompt : Self._translatorPrompt
-            _payload["messages"] = messages
+            messages[0]["content"] = mode.prompt
+            payload["messages"] = messages
         }
     }
 
     private func appendUserQueryToChatSession(query: String) {
-        if var messages = _payload["messages"] as? [[String: String]] {
+        if var messages = payload["messages"] as? [[String: String]] {
             // Append user prompts to maintain some sort of state. Note that we do not send back the agent responses because
             // they won't add much.
             messages.append([ "role": "user", "content": "\(query)" ])
-            _payload["messages"] = messages
+            payload["messages"] = messages
         }
     }
 
     private func appendAIResponseToChatSession(response: String) {
-        if var messages = _payload["messages"] as? [[String: String]] {
+        if var messages = payload["messages"] as? [[String: String]] {
             messages.append([ "role": "assistant", "content": "\(response)" ])
-            _payload["messages"] = messages
+            payload["messages"] = messages
         }
     }
 
@@ -134,7 +140,7 @@ public class ChatGPT: NSObject {
         do {
             let jsonString = String(decoding: data, as: UTF8.self)
             if jsonString.count > 0 {
-                print("[ChatGPT] Response payload: \(jsonString)")
+                Logger.chatGpt.log("[ChatGPT] Response payload: \(jsonString)")
             }
             let json = try JSONSerialization.jsonObject(with: data, options: [])
             if let response = json as? [String: AnyObject] {
@@ -159,9 +165,9 @@ public class ChatGPT: NSObject {
                     return (json, .success(content))
                 }
             }
-            print("[ChatGPT] Error: Unable to parse response")
+            Logger.chatGpt.log("[ChatGPT] Error: Unable to parse response")
         } catch {
-            print("[ChatGPT] Error: Unable to deserialize response: \(error)")
+            Logger.chatGpt.log("[ChatGPT] Error: Unable to deserialize response: \(error)")
         }
         return (nil, .failure(.responsePayloadParseError))
     }
@@ -180,55 +186,53 @@ public class ChatGPT: NSObject {
 extension ChatGPT: URLSessionDelegate {
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
         let errorMessage = error == nil ? "unknown error" : error!.localizedDescription
-        print("[ChatGPT] URLSession became invalid: \(errorMessage)")
+        Logger.chatGpt.log("[ChatGPT] URLSession became invalid: \(errorMessage)")
 
         // Deliver error for all outstanding tasks
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            for (_, completion) in self._completionByTask {
+            for (_, completion) in completionByTask {
                 completion(.failure(.clientSideNetworkError(error: error)))
             }
-            _completionByTask = [:]
+            completionByTask = [:]
         }
     }
 
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        print("[ChatGPT] URLSession finished events")
+        Logger.chatGpt.log("[ChatGPT] URLSession finished events")
     }
 
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[ChatGPT] URLSession received challenge")
+        Logger.chatGpt.log("[ChatGPT] URLSession received challenge")
         if let trust = challenge.protectionSpace.serverTrust {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
-            print("[ChatGPT] URLSession unable to use credential")
+            Logger.chatGpt.log("[ChatGPT] URLSession unable to use credential")
         }
     }
 }
 
 extension ChatGPT: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome streamTask: URLSessionStreamTask) {
-        print("[ChatGPT] URLSessionDataTask became stream task")
+        Logger.chatGpt.log("[ChatGPT] URLSessionDataTask became stream task")
         streamTask.resume()
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didBecome downloadTask: URLSessionDownloadTask) {
-        print("[ChatGPT] URLSessionDataTask became download task")
+        Logger.chatGpt.log("[ChatGPT] URLSessionDataTask became download task")
         downloadTask.resume()
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        print("[ChatGPT] URLSessionDataTask received challenge")
+        Logger.chatGpt.log("[ChatGPT] URLSessionDataTask received challenge")
         if let trust = challenge.protectionSpace.serverTrust {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
-            print("[ChatGPT] URLSessionDataTask unable to use credential")
+            Logger.chatGpt.log("[ChatGPT] URLSessionDataTask unable to use credential")
 
             // Deliver error
             DispatchQueue.main.async { [weak self] in
-                guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
-                completion(.failure(.urlAuthenticationFailed))
-                self._completionByTask.removeValue(forKey: task.taskIdentifier)
+                self?.completionByTask.removeValue(forKey: task.taskIdentifier)?(.failure(.urlAuthenticationFailed))
             }
         }
     }
@@ -236,19 +240,19 @@ extension ChatGPT: URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         // Original request was redirected somewhere else. Create a new task for redirection.
         if let urlString = request.url?.absoluteString {
-            print("[ChatGPT] URLSessionDataTask redirected to \(urlString)")
+            Logger.chatGpt.log("[ChatGPT] URLSessionDataTask redirected to \(urlString)")
         } else {
-            print("[ChatGPT] URLSessionDataTask redirected")
+            Logger.chatGpt.log("[ChatGPT] URLSessionDataTask redirected")
         }
 
         // New task
-        let newTask = self._session.dataTask(with: request)
+        let newTask = self.session.dataTask(with: request)
 
         // Replace completion
         DispatchQueue.main.async { [weak self] in
-            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
-            self._completionByTask.removeValue(forKey: task.taskIdentifier) // out with the old
-            self._completionByTask[newTask.taskIdentifier] = completion     // in with the new
+            guard let self, let completion = completionByTask[task.taskIdentifier] else { return }
+            completionByTask[task.taskIdentifier] = nil // out with the old
+            completionByTask[newTask.taskIdentifier] = completion     // in with the new
         }
 
         // Continue with new task
@@ -257,38 +261,34 @@ extension ChatGPT: URLSessionDataDelegate {
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
-            print("[ChatGPT] URLSessionDataTask failed to complete: \(error.localizedDescription)")
+            Logger.chatGpt.log("[ChatGPT] URLSessionDataTask failed to complete: \(error.localizedDescription)")
         } else {
             // Error == nil should indicate successful completion
-            print("[ChatGPT] URLSessionDataTask finished")
+            Logger.chatGpt.log("[ChatGPT] URLSessionDataTask finished")
         }
 
         // If there really was no error, we should have received data, triggered the completion,
         // and removed the completion. If it's still hanging around, there must be some unknown
         // error or I am interpreting the task lifecycle incorrectly.
         DispatchQueue.main.async { [weak self] in
-            guard let self, let completion = self._completionByTask[task.taskIdentifier] else { return }
-            completion(.failure(.clientSideNetworkError(error: error)))
-            self._completionByTask.removeValue(forKey: task.taskIdentifier)
+            self?.completionByTask.removeValue(forKey: task.taskIdentifier)?(.failure(.clientSideNetworkError(error: error)))
         }
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         // Assume that regardless of any error (including non-200 status code), the didCompleteWithError
         // delegate method will eventually be called and we can report the error there
-        print("[ChatGPT] URLSessionDataTask received response headers")
+        Logger.chatGpt.log("[ChatGPT] URLSessionDataTask received response headers")
         guard let response = response as? HTTPURLResponse else {
-            print("[ChatGPT] URLSessionDataTask received unknown response type")
+            Logger.chatGpt.log("[ChatGPT] URLSessionDataTask received unknown response type")
             return
         }
-        print("[ChatGPT] URLSessionDataTask received response code \(response.statusCode)")
+        Logger.chatGpt.log("[ChatGPT] URLSessionDataTask received response code \(response.statusCode)")
         completionHandler(URLSession.ResponseDisposition.allow)
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let (json, result) = extractContent(from: data)
-        let response = try? result.get()
-        let responseString = response ?? "" // if response is nill, contentError will be set
         let totalTokensUsed = extractTotalTokensUsed(from: json)
 
         // Deliver response and append to chat session
@@ -299,18 +299,21 @@ extension ChatGPT: URLSessionDataDelegate {
             // window
             if totalTokensUsed >= Self._maxTokens {
                 clearHistory()
-                print("[ChatGPT] Cleared context history because total tokens used reached \(totalTokensUsed)")
-            } else if let response = response {
+                Logger.chatGpt.log("[ChatGPT] Cleared context history because total tokens used reached \(totalTokensUsed)")
+            } else if case .success(let response) = result {
                 appendAIResponseToChatSession(response: response)
             }
 
             // Deliver response
-            if let completion = self._completionByTask[dataTask.taskIdentifier] {
+            if let completion = completionByTask.removeValue(forKey: dataTask.taskIdentifier) {
                 completion(result)
-                self._completionByTask.removeValue(forKey: dataTask.taskIdentifier)
             } else {
-                print("[ChatGPT]: Error: No completion found for task \(dataTask.taskIdentifier)")
+                Logger.chatGpt.log("[ChatGPT]: Error: No completion found for task \(dataTask.taskIdentifier)")
             }
         }
     }
+}
+
+extension Logger {
+    static let chatGpt = Logger(subsystem: "Service", category: "ChatGPT")
 }
