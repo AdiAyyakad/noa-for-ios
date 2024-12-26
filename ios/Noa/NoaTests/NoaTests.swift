@@ -19,7 +19,7 @@ final class NoaTests: XCTestCase {
     }
 
     func testSerialStringMatcher() throws {
-        let matcher = Util.StreamingStringMatcher(lookingFor: "foobar")
+        let matcher = StreamingStringMatcher(lookingFor: "foobar")
 
         XCTAssert(matcher.matchExists(afterAppending: "") == false)
         XCTAssert(matcher.matchExists(afterAppending: "foobar") == true)

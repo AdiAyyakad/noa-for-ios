@@ -6,12 +6,13 @@
 //
 
 import CoreVideo
+import OSLog
 
 extension CVPixelBuffer {
     public func clearAlpha() {
         let format = CVPixelBufferGetPixelFormatType(self)
         guard format == kCVPixelFormatType_32ABGR || format == kCVPixelFormatType_32ARGB else {
-            print("[CVPixelBuffer] Error: Pixel buffer must be ARGB or ABGR format")
+            Logger.cvPixelBuffer.log("[CVPixelBuffer] Error: Pixel buffer must be ARGB or ABGR format")
             return
         }
         CVPixelBufferLockBaseAddress(self, CVPixelBufferLockFlags(rawValue: 0))
@@ -32,4 +33,8 @@ extension CVPixelBuffer {
         }
         CVPixelBufferUnlockBaseAddress(self, CVPixelBufferLockFlags(rawValue: 0))
     }
+}
+
+extension Logger {
+    static let cvPixelBuffer = Logger(subsystem: "Util", category: "CVPixelBuffer")
 }

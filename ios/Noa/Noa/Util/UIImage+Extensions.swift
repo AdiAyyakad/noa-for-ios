@@ -5,8 +5,9 @@
 //  Created by Bart Trzynadlowski on 8/25/23.
 //
 
-import UIKit
 import CoreVideo
+import OSLog
+import UIKit
 import VideoToolbox
 
 extension UIImage {
@@ -17,7 +18,7 @@ extension UIImage {
         var cgImage: CGImage?
         VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage)
         guard let cgImage = cgImage else {
-            print("[UIImage] Unable to create UIImage from pixel buffer")
+            Logger.uiImage.log("[UIImage] Unable to create UIImage from pixel buffer")
             return nil
         }
         self.init(cgImage: cgImage)
@@ -25,7 +26,7 @@ extension UIImage {
 
     public func centerCropped(to cropSize: CGSize) -> UIImage? {
         guard let srcImage = self.cgImage else {
-            print("[UIImage] Unable to obtain CGImage")
+            Logger.uiImage.log("[UIImage] Unable to obtain CGImage")
             return nil
         }
 
@@ -35,7 +36,7 @@ extension UIImage {
         let cropRect = CGRect(x: CGFloat(Int(xOffset)), y: CGFloat(Int(yOffset)), width: CGFloat(Int(cropSize.width)), height: CGFloat(Int(cropSize.height)))
 
         guard let croppedImage = srcImage.cropping(to: cropRect) else {
-            print("[UIImage] Failed to produce cropped CGImage")
+            Logger.uiImage.log("[UIImage] Failed to produce cropped CGImage")
             return nil
         }
 
@@ -54,7 +55,7 @@ extension UIImage {
             UIGraphicsEndImageContext()
         }
         guard let ctx = UIGraphicsGetCurrentContext() else {
-            print("[UIImage] Unable to get current graphics context")
+            Logger.uiImage.log("[UIImage] Unable to get current graphics context")
             return nil
         }
 
@@ -94,14 +95,14 @@ extension UIImage {
 
         guard status == kCVReturnSuccess,
               let pixelBuffer = pixelBuffer else {
-            print("[UIImage] Error: Unable to create pixel buffer")
+            Logger.uiImage.log("[UIImage] Error: Unable to create pixel buffer")
             return nil
         }
 
         let lockFlags = CVPixelBufferLockFlags(rawValue: 0)
 
         guard CVPixelBufferLockBaseAddress(pixelBuffer, lockFlags) == kCVReturnSuccess else {
-            print("[UIImage] Error: Unable to lock pixel buffer")
+            Logger.uiImage.log("[UIImage] Error: Unable to lock pixel buffer")
             return nil
         }
 
@@ -115,7 +116,7 @@ extension UIImage {
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
         ) else {
             CVPixelBufferUnlockBaseAddress(pixelBuffer, lockFlags)
-            print("[UIImage] Error: Unable to create CGContext")
+            Logger.uiImage.log("[UIImage] Error: Unable to create CGContext")
             return nil
         }
 
@@ -127,4 +128,8 @@ extension UIImage {
 
         return pixelBuffer
     }
+}
+
+extension Logger {
+    static let uiImage = Logger(subsystem: "Util", category: "UIImage")
 }

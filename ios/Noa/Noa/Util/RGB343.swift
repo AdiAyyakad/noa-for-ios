@@ -39,7 +39,7 @@ func convertARGB8ToRGB343(_ pixelBuffer: CVPixelBuffer) -> Data {
         var outIdx = 0          // output byte index (first of the two bytes to insert into)
         var shiftRightCount = 0 // number of bits to shift right within that first byte
         var phaseIdx = 0        // which "phase" we are in: 0, 1, 2, or 3 (last phase is where a
-                                // complete second byte is written and phase resets)
+        // complete second byte is written and phase resets)
 
         for _ in 0..<height {
             for _ in 0..<width {
@@ -49,8 +49,8 @@ func convertARGB8ToRGB343(_ pixelBuffer: CVPixelBuffer) -> Data {
                 idx += 4
 
                 let rgb343 = ((r & 0xe0) << 2) |
-                             ((g & 0xf0) >> 1) |
-                             (b >> 5)
+                ((g & 0xf0) >> 1) |
+                (b >> 5)
 
                 // Insert into high byte
                 data[outIdx] = UInt8(rgb343 >> (shiftRightCount + 2)) | (data[outIdx] & hiMask[phaseIdx])

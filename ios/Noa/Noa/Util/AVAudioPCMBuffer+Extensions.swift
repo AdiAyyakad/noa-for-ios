@@ -6,9 +6,9 @@
 //
 
 import AVFoundation
+import OSLog
 
-extension AVAudioPCMBuffer
-{
+extension AVAudioPCMBuffer {
     public static func fromMonoInt16Data(_ data: Data, sampleRate: Int) -> AVAudioPCMBuffer? {
         // Allocate buffer
         let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!
@@ -17,9 +17,7 @@ extension AVAudioPCMBuffer
         }
 
         // Get the underlying memory for the PCM buffer and copy data into it
-        guard let destSamples = buffer.int16ChannelData else {
-            return nil
-        }
+        guard let destSamples = buffer.int16ChannelData else { return nil }
         let destPtr = UnsafeMutableBufferPointer(start: destSamples.pointee, count: Int(buffer.frameCapacity))
         destPtr.withMemoryRebound(to: UInt8.self) { destBytes -> Void in
             // Now we have the destination as a byte buffer and can copy from the data buffer
@@ -32,15 +30,12 @@ extension AVAudioPCMBuffer
     public static func fromMonoInt8Data(_ data: Data, sampleRate: Int) -> AVAudioPCMBuffer? {
         // Allocate buffer
         let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(data.count)) else {
-            return nil
-        }
-
-        // Get the underlying memory for the PCM buffer and store samples converted from signed 8-
-        // bit to signed 16-bit in it
-        guard let destSamples = buffer.int16ChannelData else {
-            return nil
-        }
+        guard
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(data.count)),
+            // Get the underlying memory for the PCM buffer and store samples converted from signed 8-
+            // bit to signed 16-bit in it
+            let destSamples = buffer.int16ChannelData
+        else { return nil }
         let destPtr = UnsafeMutableBufferPointer(start: destSamples.pointee, count: Int(buffer.frameCapacity))
         destPtr.withMemoryRebound(to: Int16.self) { destWords -> Void in
             for i in 0..<data.count {
@@ -56,7 +51,7 @@ extension AVAudioPCMBuffer
     }
 
     public func convertToCMSampleBuffer(presentationTimeStamp: CMTime? = nil) -> CMSampleBuffer? {
-        if self.frameLength == 0 {
+        if frameLength == 0 {
             // Procedure below does not work for zero-length buffers
             return nil
         }
@@ -80,11 +75,9 @@ extension AVAudioPCMBuffer
             formatDescriptionOut: &format
         )
 
-        if (status != noErr) {
-            return nil
-        }
+        guard status == noErr else { return nil }
 
-        var timing: CMSampleTimingInfo = CMSampleTimingInfo(
+        var timing = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: Int32(asbd.pointee.mSampleRate)),
             presentationTimeStamp: presentationTimeStamp ?? CMClockGetTime(CMClockGetHostTimeClock()),
             decodeTimeStamp: CMTime.invalid
@@ -105,8 +98,8 @@ extension AVAudioPCMBuffer
             sampleBufferOut: &sampleBuffer
         )
 
-        if (status != noErr) {
-            print("[AVAudioPCMBuffer] CMSampleBufferCreate failed: \(status)")
+        guard status == noErr else {
+            Logger.avAudioPcmBuffer.log("[AVAudioPCMBuffer] CMSampleBufferCreate failed: \(status)")
             return nil
         }
 
@@ -119,10 +112,14 @@ extension AVAudioPCMBuffer
         )
 
         if (status != noErr) {
-            print("[AVAudioPCMBuffer] CMSampleBufferSetDataBufferFromAudioBufferList failed: \(status)")
+            Logger.avAudioPcmBuffer.log("[AVAudioPCMBuffer] CMSampleBufferSetDataBufferFromAudioBufferList failed: \(status)")
             return nil
         }
 
         return sampleBuffer
     }
+}
+
+extension Logger {
+    static let avAudioPcmBuffer = Logger(subsystem: "Util", category: "AVAudioPCMBuffer")
 }

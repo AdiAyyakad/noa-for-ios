@@ -95,7 +95,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     private var _subscribers = Set<AnyCancellable>()
 
     private var _state = State.disconnected
-    private var _matcher: Util.StreamingStringMatcher?
+    private var _matcher: StreamingStringMatcher?
 
     private static let _firmwareURL = Bundle.main.url(forResource: "monocle-micropython-v23.248.0754", withExtension: "zip")!
     private static let _fpgaURL = Bundle.main.url(forResource: "monocle-fpga", withExtension: "bin")!
@@ -535,7 +535,7 @@ private extension Controller {
 private extension Controller {
     func onWaitForRawREPLState(receivedString str: String, didFinishDFU: Bool) {
         if _matcher == nil {
-            _matcher = Util.StreamingStringMatcher(lookingFor: "raw REPL; CTRL-B to exit\r\n>")
+            _matcher = StreamingStringMatcher(lookingFor: "raw REPL; CTRL-B to exit\r\n>")
         }
 
         if _matcher!.matchExists(afterAppending: str) {
@@ -635,7 +635,7 @@ private extension Controller {
     func onFPGAErased(receivedString str: String, updateState: FPGAUpdateState) {
         if _matcher == nil {
             // Annoyingly, this comes across over two transfers
-            _matcher = Util.StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
+            _matcher = StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
         }
 
         if _matcher!.matchExists(afterAppending: str) {
@@ -678,7 +678,7 @@ private extension Controller {
 
     func onFPGAImageChunkTransmitted(receivedString str: String, updateState: FPGAUpdateState) {
         if _matcher == nil {
-            _matcher = Util.StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
+            _matcher = StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
         }
 
         if _matcher!.matchExists(afterAppending: str) {
@@ -709,7 +709,7 @@ private extension Controller {
         // We therefore manually check for '>'. If it comes across before the string matcher has
         // seen the desired version number, we assume it has failed.
         if _matcher == nil {
-            _matcher = Util.StreamingStringMatcher(lookingFor: expectedVersion)
+            _matcher = StreamingStringMatcher(lookingFor: expectedVersion)
         }
 
         if _matcher!.matchExists(afterAppending: str) {
@@ -732,7 +732,7 @@ private extension Controller {
 
     func onScriptTransmitted(receivedString str: String, scriptTransmissionState: ScriptTransmissionState) {
         if _matcher == nil {
-            _matcher = Util.StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
+            _matcher = StreamingStringMatcher(lookingFor: "OK\u{4}\u{4}>")
         }
 
         if _matcher!.matchExists(afterAppending: str) {
