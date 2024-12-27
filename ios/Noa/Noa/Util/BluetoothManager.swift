@@ -16,28 +16,24 @@
 //
 
 import AVFoundation
-import Combine
 import CoreBluetooth
+import OSLog
 
 class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     /// Nearby peripherals matching our peripheral name sorted in desceding order of RSSI. This is updated only while not connected.
-    @Published private(set) var discoveredDevices = PassthroughSubject<[(deviceID: UUID, rssi: Float)], Never>()
+    @Published private(set) var discoveredDevices: [(deviceID: UUID, rssi: Float)] = []
 
     @Published private(set) var isConnected = false
 
-    /// Peripheral connected
-    @Published private(set) var peripheralConnected = PassthroughSubject<UUID, Never>()
-
-    /// Peripheral disconnected
-    @Published private(set) var peripheralDisconnected = PassthroughSubject<Void, Never>()
+    @Published private(set) var connectedPeripheralID: UUID?
 
     /// Data received on a subscribed characteristic
-    @Published private(set) var dataReceived = PassthroughSubject<(characteristic: CBUUID, value: Data), Never>()
+    @Published private(set) var dataReceived: (characteristic: CBUUID, value: Data)?
 
     /// Sets the device ID to automatically connect to. This is kept separate from
     /// connectedDeviceID to avoid an infinite publishing loop from here -> Settings -> here when
     /// auto-connecting by proximity.
-    @Published public var selectedDeviceID: UUID? {
+    @Published var selectedDeviceID: UUID? {
         didSet {
             if let connectedPeripheral = _connectedPeripheral {
                 // We have a connected peripheral. See if desired device ID changed and if so,
@@ -49,26 +45,18 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
     }
 
-    /// RSSI threshold used for proximity-based auto-pairing. The relative signal strength must be greater than or equal to this value.
-    public var rssiThreshold: Float = -70
-
-    public var maximumDataLength: Int? {
-        return _connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
+    var maximumDataLength: Int? {
+        _connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
     }
 
     /// Enables/disables the Bluetooth connectivity. Disconnects from connected peripheral (but
     /// does not unpair it) and stops scanning when set to false. When set to true, will try to
     /// immediately begin scanning.
-    public var enabled: Bool {
-        get {
-            return _enabled
-        }
-
-        set {
-            _enabled = newValue
-            print("[BluetoothManager] \(_enabled ? "Enabled" : "Disabled")")
-            if _enabled && _manager.state == .poweredOn {
-                startScan()
+    var enabled = false {
+        didSet {
+            Logger.bluetoothManager.log("[BluetoothManager] \(self.enabled ? "Enabled" : "Disabled")")
+            if enabled && _manager.state == .poweredOn {
+                startScanIfEnabled()
             } else {
                 // Do not attempt to scan anymore
                 if _manager.state == .poweredOn {
@@ -85,11 +73,12 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
     }
 
-    public var connectedPeripheral: CBPeripheral? {
-        return _connectedPeripheral
+    var connectedPeripheral: CBPeripheral? {
+        _connectedPeripheral
     }
 
-    private var _enabled = false
+    /// RSSI threshold used for proximity-based auto-pairing. The relative signal strength must be greater than or equal to this value.
+    static let rssiThreshold: Float = -70
 
     private let _peripheralName: String
     private let _serviceUUIDs: [CBUUID]
@@ -99,9 +88,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     private let _queue: DispatchQueue
 
-    private lazy var _manager: CBCentralManager = {
-        return CBCentralManager(delegate: self, queue: _queue)
-    }()
+    private lazy var _manager = CBCentralManager(delegate: self, queue: _queue)
     private var _started = false
 
     private let _allowAutoConnectByProximity: Bool
@@ -114,8 +101,8 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             isConnected = _connectedPeripheral != nil
 
             // If we auto-connected and selectedDeviceID was nil, set the selected ID
-            if selectedDeviceID == nil, let connectedPeripheral = _connectedPeripheral {
-                selectedDeviceID = connectedPeripheral.identifier
+            if selectedDeviceID == nil, let _connectedPeripheral {
+                selectedDeviceID = _connectedPeripheral.identifier
             }
         }
     }
@@ -124,7 +111,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     private var _didSendConnectedEvent = false
 
-    public init(
+    init(
         autoConnectByProximity: Bool,
         peripheralName: String,
         services: [CBUUID: String],
@@ -137,18 +124,8 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         _receiveCharacteristicUUIDs = Array(receiveCharacteristics.keys)
         _transmitCharacteristicUUIDs = Array(transmitCharacteristics.keys)
         _allowAutoConnectByProximity = autoConnectByProximity
-
-        var characteristicNameByID: [CBUUID: String] = [:]
-        for (id, name) in receiveCharacteristics {
-            characteristicNameByID[id] = name
-        }
-        for (id, name) in transmitCharacteristics {
-            characteristicNameByID[id] = name
-        }
-        _characteristicNameByID = characteristicNameByID
-
+        _characteristicNameByID = receiveCharacteristics.merging(transmitCharacteristics, uniquingKeysWith: { $1 })
         _queue = queue
-
         super.init()
     }
 
@@ -164,32 +141,32 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     public func send(data: Data, on id: CBUUID, response: Bool = false) {
         guard let characteristic = _characteristicByID[id] else {
-            print("[BluetoothManager] Failed to send because characteristic is not available: UUID=\(id)")
+            Logger.bluetoothManager.log("[BluetoothManager] Failed to send because characteristic is not available: UUID=\(id)")
             return
         }
 
         guard let connectedPeripheral = _connectedPeripheral else {
-            print("[BluetoothManager] Failed to send because no peripheral is connected")
+            Logger.bluetoothManager.log("[BluetoothManager] Failed to send because no peripheral is connected")
             return
         }
 
         writeData(data, on: characteristic, peripheral: connectedPeripheral, response: response)
-        print("[BluetoothManager] Sent \(data.count) bytes on \(toString(characteristic))")
+        Logger.bluetoothManager.log("[BluetoothManager] Sent \(data.count) bytes on \(self.toString(characteristic))")
     }
 
     public func send(text str: String, on id: CBUUID) {
-        if let data = str.data(using: .utf8) {
-            send(data: data, on: id)
-        }
+        guard let data = str.data(using: .utf8) else { return }
+        send(data: data, on: id)
     }
 
-    private func startScan() {
+    private func startScanIfEnabled() {
+        guard enabled else { return }
         if _manager.isScanning {
-            print("[BluetoothManager] Internal error: Already scanning")
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: Already scanning")
         }
 
         _manager.scanForPeripherals(withServices: _serviceUUIDs, options: [ CBCentralManagerScanOptionAllowDuplicatesKey: true ])
-        print("[BluetoothManager] Scan initiated")
+        Logger.bluetoothManager.log("[BluetoothManager] Scan initiated")
 
         // Create a timer to update discoved peripheral list
         _discoveryTimer?.invalidate()
@@ -217,7 +194,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         _connectedPeripheral = nil
         forgetCharacteristics()
 
-        peripheralDisconnected.send()
+        connectedPeripheralID = nil
         _didSendConnectedEvent = false
     }
 
@@ -237,7 +214,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
 
         // If we are adding a peripheral, remove dupes first
-        if let peripheral = peripheral {
+        if let peripheral {
             _discoveredPeripherals.removeAll { $0.peripheral.isEqual(peripheral) }
             _discoveredPeripherals.append((peripheral: peripheral, rssi: rssi, timeout: now + 10))  // timeout after 10 seconds
             didChange = true
@@ -248,50 +225,43 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         let devices = _discoveredPeripherals
             .map { (deviceID: $0.peripheral.identifier, rssi: $0.rssi) }
             .sorted { $0 .rssi < $1.rssi }
-        discoveredDevices.send(devices)
+        discoveredDevices = devices
         if didChange {
-            print("[BluetoothManager] Discovered peripherals:")
-            for (peripheral, rssi, _) in _discoveredPeripherals {
-                print("[BluetoothManager]   name=\(peripheral.name ?? "<no name>") id=\(peripheral.identifier) rssi=\(rssi)")
-            }
+            let peripheralsDescription = _discoveredPeripherals
+                .map { "\tname=\($0.peripheral.name ?? "<no name>") id=\($0.peripheral.identifier) rssi=\($0.rssi)" }
+                .joined(separator: "\n")
+            Logger.bluetoothManager.log("[BluetoothManager] Discovered peripherals:\n\(peripheralsDescription)")
         }
     }
 
     private func printServices() {
-        guard let peripheral = _connectedPeripheral else { return }
+        guard let _connectedPeripheral else { return }
 
-        if let services = peripheral.services {
-            print("[BluetoothManager] Listing services for peripheral: name=\(peripheral.name ?? ""), UUID=\(peripheral.identifier)")
-            for service in services {
-                print("[BluetoothManager]   Service: UUID=\(service.uuid), description=\(service.description)")
-            }
-        } else {
-            print("[BluetoothManager] No services for peripheral UUID=\(peripheral.identifier)")
+        guard let services = _connectedPeripheral.services else {
+            Logger.bluetoothManager.log("[BluetoothManager] No services for peripheral UUID=\(_connectedPeripheral.identifier)")
+            return
         }
+        let servicesDescription = services
+            .map { "\tService: UUID=\($0.uuid), description=\($0.description)" }
+            .joined(separator: "\n")
+        Logger.bluetoothManager.log("[BluetoothManager] Listing services for peripheral: name=\(_connectedPeripheral.name ?? ""), UUID=\(_connectedPeripheral.identifier)\n\(servicesDescription)")
     }
 
     private func discoverCharacteristics() {
-        guard let peripheral = _connectedPeripheral,
-              let services = peripheral.services else {
-            return
-        }
-
+        guard let _connectedPeripheral, let services = _connectedPeripheral.services else { return }
         forgetCharacteristics()
-
-        for service in services {
-            peripheral.discoverCharacteristics(_receiveCharacteristicUUIDs + _transmitCharacteristicUUIDs, for: service)
-        }
+        services.forEach(curry(_connectedPeripheral.discoverCharacteristics)(_receiveCharacteristicUUIDs + _transmitCharacteristicUUIDs))
     }
 
     private func printCharacteristics(of service: CBService) {
-        if let characteristics = service.characteristics {
-            print("[BluetoothManager] Listing characteristics for service: description=\(service.description), UUID=\(service.uuid)")
-            for characteristic in characteristics {
-                print("[BluetoothManager]   Characteristic: description=\(characteristic.description), UUID=\(characteristic.uuid)")
-            }
-        } else {
-            print("[BluetoothManager] No characteristics for service UUID=\(service.uuid)")
+        guard let characteristics = service.characteristics else {
+            Logger.bluetoothManager.log("[BluetoothManager] No characteristics for service UUID=\(service.uuid)")
+            return
         }
+        let characteristicsDescription = characteristics
+            .map { "\tCharacteristic: description=\($0.description), UUID=\($0.uuid)" }
+            .joined(separator: "\n")
+        Logger.bluetoothManager.log("[BluetoothManager] Listing characteristics for service: description=\(service.description), UUID=\(service.uuid)\n\(characteristicsDescription)")
     }
 
     private func saveCharacteristics(of service: CBService) {
@@ -304,20 +274,23 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                 if _receiveCharacteristicUUIDs.contains(id) {
                     _characteristicByID[id] = characteristic
                     peripheral.setNotifyValue(true, for: characteristic)
-                    print("[BluetoothManager] Obtained characteristic: \(toString(characteristic))")
+                    Logger.bluetoothManager.log("[BluetoothManager] Obtained characteristic: \(self.toString(characteristic))")
                 } else if _transmitCharacteristicUUIDs.contains(id) {
                     _characteristicByID[id] = characteristic
-                    print("[BluetoothManager] Obtained characteristic: \(toString(characteristic))")
+                    Logger.bluetoothManager.log("[BluetoothManager] Obtained characteristic: \(self.toString(characteristic))")
+                } else {
+                    Logger.bluetoothManager.log("[BluetoothManager] Tossed characteristic: \(self.toString(characteristic))")
                 }
             }
         }
 
         // Send connection event when all characteristics obtained
-        let haveAllCharacteristics = _characteristicByID.count == Set(_receiveCharacteristicUUIDs + _transmitCharacteristicUUIDs).count // create set because transmit and receive characteristics may be shared
-        if haveAllCharacteristics, !_didSendConnectedEvent {
-            peripheralConnected.send(peripheral.identifier)
-            _didSendConnectedEvent = true
-        }
+        guard
+            _characteristicByID.count == Set(_receiveCharacteristicUUIDs + _transmitCharacteristicUUIDs).count, // create set because transmit and receive characteristics may be shared
+            !_didSendConnectedEvent
+        else { return }
+        self.connectedPeripheralID = peripheral.identifier
+        _didSendConnectedEvent = true
     }
 
     // MARK: Helpers
@@ -333,7 +306,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     private func toString(_ characteristic: CBCharacteristic) -> String {
-        return _characteristicNameByID[characteristic.uuid] ?? "UUID=\(characteristic.uuid)"
+        _characteristicNameByID[characteristic.uuid] ?? "UUID=\(characteristic.uuid)"
     }
 
     // MARK: CBCentralManagerDelegate
@@ -341,27 +314,19 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
         case .poweredOn:
-            if enabled {
-                startScan()
-            }
+            startScanIfEnabled()
         case .poweredOff:
             // Alert user to turn on Bluetooth
-            print("[BluetoothManager] Bluetooth is powered off")
-            break
-        case .resetting:
-            // Wait for next state update and consider logging interruption of Bluetooth service
-            break
+            Logger.bluetoothManager.log("[BluetoothManager] Bluetooth is powered off")
         case .unauthorized:
             // Alert user to enable Bluetooth permission in app Settings
-            print("[BluetoothManager] Authorization missing!")
-            break
+            Logger.bluetoothManager.log("[BluetoothManager] Authorization missing!")
         case .unsupported:
             // Alert user their device does not support Bluetooth and app will not work as expected
-            print("[BluetoothManager] Bluetooth not supported on this device!")
-            break
-        case .unknown:
-           // Wait for next state update
-            break
+            Logger.bluetoothManager.log("[BluetoothManager] Bluetooth not supported on this device!")
+        case .resetting:
+            Logger.bluetoothManager.log("[BluetoothManager] Bluetooth is resetting")
+        case .unknown: fallthrough
         default:
             break
         }
@@ -369,7 +334,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         let name = peripheral.name ?? ""
-        print("[BluetoothManager] Discovered peripheral: name=\(name), UUID=\(peripheral.identifier), RSSI=\(RSSI)")
+        Logger.bluetoothManager.log("[BluetoothManager] Discovered peripheral: name=\(name), UUID=\(peripheral.identifier), RSSI=\(RSSI)")
 
         guard name == _peripheralName else {
             updateDiscoveredPeripherals()
@@ -378,84 +343,66 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
         updateDiscoveredPeripherals(with: peripheral, rssi: RSSI.floatValue)
 
-        guard _connectedPeripheral == nil else {
-            // Already connected
-            return
-        }
+        guard _connectedPeripheral == nil else { return } // Already connected
 
         // If this is the peripheral we are "paired" to and looking for, connect
         var shouldConnect = peripheral.identifier == selectedDeviceID
 
         // Otherwise, auto-connect to first device whose RSSI meets the threshold and auto-connect enabled
-        if _allowAutoConnectByProximity && RSSI.floatValue >= rssiThreshold {
+        if _allowAutoConnectByProximity && RSSI.floatValue >= Self.rssiThreshold {
             shouldConnect = true
         }
 
         // Connect
-        if shouldConnect {
-            print("[BluetoothManager] Connecting to peripheral: name=\(name), UUID=\(peripheral.identifier)")
-            connectPeripheral(peripheral)
-        }
+        guard shouldConnect else { return }
+        Logger.bluetoothManager.log("[BluetoothManager] Connecting to peripheral: name=\(name), UUID=\(peripheral.identifier)")
+        connectPeripheral(peripheral)
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        if peripheral != _connectedPeripheral {
-            print("[BluetoothManager] Internal error: Connected to an unexpected peripheral")
+        guard peripheral == _connectedPeripheral else {
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: Connected to an unexpected peripheral")
             return
         }
 
-        let name = peripheral.name ?? ""
-
-        print("[BluetoothManager] Connected to peripheral: name=\(name), UUID=\(peripheral.identifier)")
+        Logger.bluetoothManager.log("[BluetoothManager] Connected to peripheral: name=\(peripheral.name ?? ""), UUID=\(peripheral.identifier)")
         peripheral.delegate = self
         peripheral.discoverServices(_serviceUUIDs)
     }
 
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        if peripheral != _connectedPeripheral {
-            print("[BluetoothManager] Internal error: Failed to connect to an unexpected peripheral")
+        guard peripheral == _connectedPeripheral else {
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: Failed to connect to an unexpected peripheral")
             return
         }
 
-        if let error = error {
-            print("[BluetoothManager] Error: Failed to connect to peripheral: \(error.localizedDescription)")
-        } else {
-            print("[BluetoothManager] Error: Failed to connect to peripheral")
-        }
-
+        Logger.bluetoothManager.log("[BluetoothManager] Error: Failed to connect to peripheral: \(error?.localizedDescription ?? "unspecified error")")
         forgetPeripheral()
         updateDiscoveredPeripherals()
     }
 
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        if peripheral != _connectedPeripheral {
-            print("[BluetoothManager] Internal error: Disconnected from an unexpected peripheral")
+        guard peripheral == _connectedPeripheral else {
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: Disconnected from an unexpected peripheral")
             return
         }
 
-        if let error = error {
-            print("[BluetoothManager] Error: Disconnected from peripheral: \(error.localizedDescription)")
-        } else {
-            print("[BluetoothManager] Disconnected from peripheral")
-        }
-
+        Logger.bluetoothManager.log("[BluetoothManager] Error: Disconnected from peripheral: \(error?.localizedDescription ?? "unspecified error")")
         forgetPeripheral()
-        if enabled {
-            startScan()
-        }
+        startScanIfEnabled()
         updateDiscoveredPeripherals()
     }
 
     // MARK: CBPeripheralDelegate
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        if peripheral != _connectedPeripheral {
-            print("[BluetoothManager] Internal error: peripheral(_:, didDiscoverServices:) called unexpectedly")
+        guard peripheral != _connectedPeripheral else {
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: peripheral(_:, didDiscoverServices:) called unexpectedly")
             return
         }
 
-        if let error = error {
-            print("[BluetoothManager] Error discovering services on peripheral UUID=\(peripheral.identifier): \(error.localizedDescription)")
+        guard error == nil else {
+            Logger.bluetoothManager.log("[BluetoothManager] Error discovering services on peripheral UUID=\(peripheral.identifier): \(error!.localizedDescription)")
             return
         }
 
@@ -464,14 +411,14 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
-        if peripheral != _connectedPeripheral {
-            print("[BluetoothManager] Internal error: peripheral(_:, didModifyServices:) called unexpectedly")
+        guard peripheral == _connectedPeripheral else {
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: peripheral(_:, didModifyServices:) called unexpectedly")
             return
         }
 
-        print("[BluetoothManager] didModifyServices")
+        Logger.bluetoothManager.log("[BluetoothManager] didModifyServices")
         for service in invalidatedServices {
-            print("  descr=\(service.description) uuid=\(service.uuid)")
+            Logger.bluetoothManager.log("  descr=\(service.description) uuid=\(service.uuid)")
         }
 
         // If any service is invalidated, forget them all and then rediscover. This is probably over-agressive.
@@ -483,8 +430,8 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        if peripheral != _connectedPeripheral {
-            print("[BluetoothManager] Internal error: peripheral(_:, didDiscoverCharacteristicsFor:, error:) called unexpectedly")
+        guard peripheral == _connectedPeripheral else {
+            Logger.bluetoothManager.log("[BluetoothManager] Internal error: peripheral(_:, didDiscoverCharacteristicsFor:, error:) called unexpectedly")
             return
         }
 
@@ -493,18 +440,18 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        if let error = error {
-            print("[BluetoothManager] Error: Value update for \(toString(characteristic)) failed: \(error.localizedDescription)")
+        guard error == nil else {
+            Logger.bluetoothManager.log("[BluetoothManager] Error: Value update for \(self.toString(characteristic)) failed: \(error!.localizedDescription)")
             return
         }
 
         let id = characteristic.uuid
-
-        if _receiveCharacteristicUUIDs.contains(id) {
-            // We have received something
-            if let value = characteristic.value {
-                dataReceived.send((characteristic: id, value: value))
-            }
-        }
+        guard _receiveCharacteristicUUIDs.contains(id), let value = characteristic.value else { return }
+        // We have received something
+        dataReceived = (characteristic: id, value: value)
     }
+}
+
+extension Logger {
+    static let bluetoothManager = Logger(subsystem: "Util", category: "BluetoothManager")
 }

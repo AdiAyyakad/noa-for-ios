@@ -176,7 +176,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         .store(in: &_subscribers)
 
         // Changes in nearby list of Monocle devices (arrives on Bluetooth queue)
-        _monocleBluetooth.discoveredDevices.sink { [weak self] (devices: [(deviceID: UUID, rssi: Float)]) in
+        _monocleBluetooth.$discoveredDevices.sink { [weak self] (devices: [(deviceID: UUID, rssi: Float)]) in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 // If there is a Monocle that is within pairing distance, broadcast that. We use two
@@ -196,67 +196,63 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         }
         .store(in: &_subscribers)
 
-        // Connection to Monocle (arrives on Bluetooth queue)
-        _monocleBluetooth.peripheralConnected.sink { [weak self] (deviceID: UUID) in
-            DispatchQueue.main.async { [weak self] in
+        _monocleBluetooth.$connectedPeripheralID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] deviceID in
                 guard let self else { return }
+                if let deviceID {
+                    print("[Controller] Monocle connected")
 
-                print("[Controller] Monocle connected")
+                    // Did we arrive here as a new connection or because a DFU update was finished?
+                    var didFinishDFU = false
+                    if case .performDFU(_, _) = _state {
+                        didFinishDFU = true
+                    }
 
-                // Did we arrive here as a new connection or because a DFU update was finished?
-                var didFinishDFU = false
-                if case .performDFU(_, _) = _state {
-                    didFinishDFU = true
-                }
+                    // When Monocle is connected, stop looking for DfuTarg
+                    _bluetoothQueue.async { [weak _dfuBluetooth] in
+                        _dfuBluetooth?.enabled = false
+                    }
+                    _dfuController = nil
 
-                // When Monocle is connected, stop looking for DfuTarg
-                _bluetoothQueue.async { [weak _dfuBluetooth] in
-                    _dfuBluetooth?.enabled = false
-                }
-                _dfuController = nil
+                    // Save the paired device if we auto-connected. Currently, auto-connecting should not be
+                    // possible anymore.
+                    if self._settings.pairedDeviceID == nil {
+                        self._settings.setPairedDeviceID(deviceID)
+                    }
 
-                // Save the paired device if we auto-connected. Currently, auto-connecting should not be
-                // possible anymore.
-                if self._settings.pairedDeviceID == nil {
-                    self._settings.setPairedDeviceID(deviceID)
-                }
+                    // Enter raw REPL mode
+                    transitionState(to: .enterRawREPL(didFinishDFU: didFinishDFU))
+                } else {
+                    print("[Controller] Monocle disconnected")
 
-                // Enter raw REPL mode
-                transitionState(to: .enterRawREPL(didFinishDFU: didFinishDFU))
-            }
-        }.store(in: &_subscribers)
+                    // Are we in a DFU state?
+                    var isPerformingDFU = false
+                    switch _state {
+                    case .initiateDFUAndWaitForDFUTarget:
+                        isPerformingDFU = true
+                    case .performDFU(peripheral: _):
+                        isPerformingDFU = true
+                    default:
+                        break
+                    }
 
-        // Monocle disconnected (arrives on Bluetooth queue)
-        _monocleBluetooth.peripheralDisconnected.sink { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                print("[Controller] Monocle disconnected")
-
-                // Are we in a DFU state?
-                var isPerformingDFU = false
-                switch _state {
-                case .initiateDFUAndWaitForDFUTarget:
-                    isPerformingDFU = true
-                case .performDFU(peripheral: _):
-                    isPerformingDFU = true
-                default:
-                    break
-                }
-
-                if !isPerformingDFU {
-                    // When waiting for DFU target/performing update, a disconnect is expected and we
-                    // don't want to change the state. Otherwise, Monocle has disconnected and we need
-                    // to move to the disconnected state. Note DFU target will often connect *before*
-                    // we receive the Monocle disconnect event and continue to progress, hence the need
-                    // to check *all* DFU states.
-                    transitionState(to: .disconnected)
+                    if !isPerformingDFU {
+                        // When waiting for DFU target/performing update, a disconnect is expected and we
+                        // don't want to change the state. Otherwise, Monocle has disconnected and we need
+                        // to move to the disconnected state. Note DFU target will often connect *before*
+                        // we receive the Monocle disconnect event and continue to progress, hence the need
+                        // to check *all* DFU states.
+                        transitionState(to: .disconnected)
+                    }
                 }
             }
-        }.store(in: &_subscribers)
+            .store(in: &_subscribers)
 
         // Monocle data received (arrives on Bluetooth queue)
-        _monocleBluetooth.dataReceived.sink { [weak self] (received: (characteristic: CBUUID, value: Data)) in
-            DispatchQueue.main.async { [weak self] in
+        _monocleBluetooth.$dataReceived.compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] (received: (characteristic: CBUUID, value: Data)) in
                 guard let self else { return }
 
                 let (characteristicID, value) = received
@@ -266,43 +262,41 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
                 } else if characteristicID == Self._dataTx {
                     handleDataReceived(value)
                 }
-            }
-        }.store(in: &_subscribers)
+            }.store(in: &_subscribers)
 
-        // DFU target connected (arrives on Bluetooth queue)
-        _dfuBluetooth.peripheralConnected.sink { [weak self] (deviceID: UUID) in
-            guard let peripheral = self?._dfuBluetooth.connectedPeripheral else { return }
-            DispatchQueue.main.async { [weak self] in
+        _dfuBluetooth.$connectedPeripheralID // Do not receive this on the main queue, so we can continue the old logic of kicking the DFU controller on disconnect.
+            .sink { [weak self] deviceID in
                 guard let self else { return }
+                if deviceID != nil {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, let peripheral = _dfuBluetooth.connectedPeripheral else { return }
+                        // DFU target connected
+                        print("[Controller] DFUTarget connected")
 
-                print("[Controller] DFUTarget connected")
-
-                if case let .initiateDFUAndWaitForDFUTarget(rescaleUpdatePercentage: rescaleUpdatePercentage) = _state {
-                    transitionState(to: .performDFU(peripheral: peripheral, rescaleUpdatePercentage: rescaleUpdatePercentage))
+                        if case let .initiateDFUAndWaitForDFUTarget(rescaleUpdatePercentage: rescaleUpdatePercentage) = _state {
+                            transitionState(to: .performDFU(peripheral: peripheral, rescaleUpdatePercentage: rescaleUpdatePercentage))
+                        } else {
+                            // This can occur if device is stuck in DFU mode and we bring the app up. We cannot
+                            // yet know whether an FPGA will follow so let's assume it won't.
+                            transitionState(to: .performDFU(peripheral: peripheral, rescaleUpdatePercentage: false))
+                        }
+                    }
                 } else {
-                    // This can occur if device is stuck in DFU mode and we bring the app up. We cannot
-                    // yet know whether an FPGA will follow so let's assume it won't.
-                    transitionState(to: .performDFU(peripheral: peripheral, rescaleUpdatePercentage: false))
+                    // DFU target disconnected (which means update succeeded, in which case device comes back
+                    // up as Monocle, or failed, in which case we will need to retry).
+                    print("[Controller] DFUTarget disconnected")
+
+                    DispatchQueue.main.async { [weak self] in
+                        self?._dfuController = nil
+                    }
+
+                    // DFU controller has been observed to occasionally abort for some unknown reason,
+                    // which also appears to stop Bluetooth scanning. We need to bounce the Bluetooth
+                    // manager so it starts scanning and auto-retries DFU.
+                    _dfuBluetooth.enabled = false
+                    _dfuBluetooth.enabled = true
                 }
-            }
-        }.store(in: &_subscribers)
-
-        // DFU target disconnected (which means update succeeded, in which case device comes back
-        // up as Monocle, or failed, in which case we will need to retry). Arrives on Bluetooth
-        // queue.
-        _dfuBluetooth.peripheralDisconnected.sink { [weak _dfuBluetooth] in
-            print("[Controller] DFUTarget disconnected")
-
-            DispatchQueue.main.async { [weak self] in
-                self?._dfuController = nil
-            }
-
-            // DFU controller has been observed to occasionally abort for some unknown reason,
-            // which also appears to stop Bluetooth scanning. We need to bounce the Bluetooth
-            // manager so it starts scanning and auto-retries DFU.
-            _dfuBluetooth?.enabled = false
-            _dfuBluetooth?.enabled = true
-        }.store(in: &_subscribers)
+            }.store(in: &_subscribers)
 
         // Set initial state
         isMonocleConnected = _monocleBluetooth.isConnected
