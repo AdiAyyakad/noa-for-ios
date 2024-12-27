@@ -29,22 +29,22 @@ struct APIKeyPopupBoxView: View {
                 .padding(.bottom, 5)
 
             TextField("OpenAI: sk-...", text: $_openAIKey)
-                .padding(.all, 2)
+                .padding(2)
                 .background(Color.gray.opacity(0.2))
                 .padding(.horizontal)
 
             TextField("Stability AI (Optional): sk-...", text: $_stabilityAIKey)
-                .padding(.all, 2)
+                .padding(2)
                 .background(Color.gray.opacity(0.2))
                 .padding(.horizontal)
 
             Divider().background(Color.gray)
 
-            Button(action: {
-                _settings.setOpenAIKey(_openAIKey)
-                _settings.setStabilityAIKey(_stabilityAIKey)
+            Button {
+                _settings.openAiApiKey = _openAIKey
+                _settings.stabilityAiApiKey = _stabilityAIKey
                 closeWithAnimation()
-            }) {
+            } label: {
                 Text("Done")
                     .bold()
                     .foregroundColor(.blue)
@@ -63,8 +63,8 @@ struct APIKeyPopupBoxView: View {
             }
 
             // Fetch existing API key
-            _openAIKey = _settings.openAIKey
-            _stabilityAIKey = _settings.stabilityAIKey
+            _openAIKey = _settings.openAiApiKey
+            _stabilityAIKey = _settings.stabilityAiApiKey
         }
     }
 

@@ -35,7 +35,7 @@ struct SettingsMenuView: View {
             Button(role: isMonoclePaired ? .destructive : .none, action: {
                 if isMonoclePaired {
                     // Unpair
-                    _settings.setPairedDeviceID(nil)
+                    _settings.pairedDeviceID = nil
                 }
 
                 // Always return to pairing screen right after unpairing or when pairing requested

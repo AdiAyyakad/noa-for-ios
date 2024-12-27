@@ -218,7 +218,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
                     // Save the paired device if we auto-connected. Currently, auto-connecting should not be
                     // possible anymore.
                     if self._settings.pairedDeviceID == nil {
-                        self._settings.setPairedDeviceID(deviceID)
+                        self._settings.pairedDeviceID = deviceID
                     }
 
                     // Enter raw REPL mode
@@ -315,7 +315,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         if let nearestMonocleID = nearestMonocleID {
             // Connect to this ID. This should propagate through immediately to BluetoothManager
             // and UI.
-            _settings.setPairedDeviceID(nearestMonocleID)
+            _settings.pairedDeviceID = nearestMonocleID
         }
     }
 
@@ -934,7 +934,7 @@ private extension Controller {
     func transcribe(audioFile fileData: Data, mode: ChatGPT.Mode) {
         print("[Controller] Transcribing voice...")
 
-        _whisper.transcribe(mode: mode == .assistant ? .transcription : .translation, fileData: fileData, format: .m4a, apiKey: _settings.openAIKey) { [weak self] (result: Result<String, AIError>) in
+        _whisper.transcribe(mode: mode == .assistant ? .transcription : .translation, fileData: fileData, format: .m4a, apiKey: _settings.openAiApiKey) { [weak self] result in
             guard let self else { return }
             switch result {
             case let .failure(error):
@@ -983,7 +983,7 @@ private extension Controller {
         // Send to ChatGPT
         let responder = mode == .assistant ? Participant.assistant : Participant.translator
         printTypingIndicatorToChat(as: responder)
-        _chatGPT.send(mode: mode, query: query, apiKey: _settings.openAIKey, model: _settings.gptModel) { [weak self] (result: Result<String, AIError>) in
+        _chatGPT.send(mode: mode, query: query, apiKey: _settings.openAiApiKey, model: _settings.gptModel) { [weak self] result in
             guard let self else { return }
             switch result {
             case let .failure(error):
@@ -1016,14 +1016,15 @@ private extension Controller {
             model: _settings.stableDiffusionModel,
             strength: _settings.imageStrength,
             guidance: _settings.imageGuidance,
-            apiKey: _settings.stabilityAIKey
-        ) { [weak self] (result: Result<UIImage, AIError>) in
+            apiKey: _settings.stabilityAiApiKey
+        ) { [weak self] result in
+            guard let self else { return }
             switch result {
             case .failure(let error):
-                self?.printErrorToChat(error.description, as: .assistant)
+                printErrorToChat(error.description, as: .assistant)
             case .success(let image):
                 let picture = image.centerCropped(to: CGSize(width: 640, height: 400)) // crop out the letterboxing we had to introduce and return to original size
-                self?.printToChat(prompt, picture: picture, as: .assistant)
+                printToChat(prompt, picture: picture, as: .assistant)
                 //TODO: this does not seem to work yet
                 //self?.sendImageToMonocleInChunks(image: picture)
             }
@@ -1169,30 +1170,29 @@ private extension Controller {
     }
 
     func playReceivedAudio(_ pcmBuffer: AVAudioPCMBuffer) {
-        if let audioConverter = _audioConverter {
-            var error: NSError?
-            var allSamplesReceived = false
-            let outputBuffer = AVAudioPCMBuffer(pcmFormat: _playbackFormat, frameCapacity: pcmBuffer.frameLength * 48/8)!
-            audioConverter.reset()
-            audioConverter.convert(to: outputBuffer, error: &error, withInputFrom: { (inNumPackets: AVAudioPacketCount, outError: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? in
-                if allSamplesReceived {
-                    outError.pointee = .noDataNow
-                    return nil
-                }
-                allSamplesReceived = true
-                outError.pointee = .haveData
-                return pcmBuffer
-            })
+        guard let _audioConverter else { return }
+        var error: NSError?
+        var allSamplesReceived = false
+        let outputBuffer = AVAudioPCMBuffer(pcmFormat: _playbackFormat, frameCapacity: pcmBuffer.frameLength * 48/8)!
+        _audioConverter.reset()
+        _audioConverter.convert(to: outputBuffer, error: &error, withInputFrom: { (inNumPackets: AVAudioPacketCount, outError: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? in
+            if allSamplesReceived {
+                outError.pointee = .noDataNow
+                return nil
+            }
+            allSamplesReceived = true
+            outError.pointee = .haveData
+            return pcmBuffer
+        })
 
-            print("\(pcmBuffer.frameLength) \(outputBuffer.frameLength)")
-            print(_playbackFormat)
-            print(_audioEngine.mainMixerNode.outputFormat(forBus: 0))
-            print(outputBuffer.format)
+        print("\(pcmBuffer.frameLength) \(outputBuffer.frameLength)")
+        print(_playbackFormat)
+        print(_audioEngine.mainMixerNode.outputFormat(forBus: 0))
+        print(outputBuffer.format)
 
-            _playerNode.scheduleBuffer(outputBuffer)
-            _playerNode.prepare(withFrameCount: outputBuffer.frameLength)
-            _playerNode.play()
-        }
+        _playerNode.scheduleBuffer(outputBuffer)
+        _playerNode.prepare(withFrameCount: outputBuffer.frameLength)
+        _playerNode.play()
     }
 }
 

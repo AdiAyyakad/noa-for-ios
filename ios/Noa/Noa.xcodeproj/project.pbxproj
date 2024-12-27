@@ -282,14 +282,6 @@
 			path = Device;
 			sourceTree = "<group>";
 		};
-		CC3FE0072A098DBC00756941 /* Settings */ = {
-			isa = PBXGroup;
-			children = (
-				CC3FE00C2A09C8A400756941 /* Settings.swift */,
-			);
-			path = Settings;
-			sourceTree = "<group>";
-		};
 		CC3FE0272A0EF80300756941 /* Test Assets */ = {
 			isa = PBXGroup;
 			children = (
@@ -336,7 +328,6 @@
 			children = (
 				CCB2F9642A2598E900F24F2D /* Util */,
 				CC3FE0342A0F12C800756941 /* AI */,
-				CC3FE0072A098DBC00756941 /* Settings */,
 				CC4E3AED2A00BBB00058AC20 /* Chat */,
 				CC00399C2A6DA398009E3BAC /* Views */,
 				CCD4B9012A93EB47004E3ADD /* NoaApp.swift */,
@@ -438,6 +429,7 @@
 				CC07BD9A2A1962DC0082999A /* M4AWriter.swift */,
 				40CA53F22D1DA29400FC9805 /* Overture.swift */,
 				CC16323F2AA6A0AC006A8E6A /* RGB343.swift */,
+				CC3FE00C2A09C8A400756941 /* Settings.swift */,
 				CC200A542A3D589D005C67E0 /* StreamingStringMatcher.swift */,
 				CC6851652A995EA9004EA777 /* UIImage+Extensions.swift */,
 			);
