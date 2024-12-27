@@ -14,8 +14,6 @@ struct NoaApp: App {
     private let _chatMessageStore = ChatMessageStore()
     private var _controller: Controller!
 
-    @UIApplicationDelegateAdaptor private var _appDelegate: AppDelegate
-
     var body: some Scene {
         WindowGroup {
             ContentView(
