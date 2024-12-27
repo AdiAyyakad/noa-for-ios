@@ -20,24 +20,20 @@ struct MessageContentView: View {
 
     private var backgroundColor: Color {
         if _message.isError {
-            return Color(UIColor.systemRed)
-        }
-
-        if _message.participant == .translator {
-            return Color(red: 89/255, green: 93/255, blue: 177/255)
-        }
-
-        if colorScheme == .dark {
+            Color(UIColor.systemRed)
+        } else if _message.participant == .translator {
+            Color(red: 89/255, green: 93/255, blue: 177/255)
+        } else if colorScheme == .dark {
             if _message.participant == .user {
-                return Color(red: 116/255, green: 170/255, blue: 156/255)
+                Color(red: 116/255, green: 170/255, blue: 156/255)
             } else  {
-                return Color(red: 38/255, green: 38/255, blue: 40/255)
+                Color(red: 38/255, green: 38/255, blue: 40/255)
             }
         } else {
             if _message.participant == .user {
-                return Color(red: 87/255, green: 199/255, blue: 170/255)
+                Color(red: 87/255, green: 199/255, blue: 170/255)
             } else {
-                return Color(red: 233/255, green: 233/255, blue: 235/255)
+                Color(red: 233/255, green: 233/255, blue: 235/255)
             }
         }
     }
@@ -45,21 +41,30 @@ struct MessageContentView: View {
     private var chatBubbleDirection: ChatBubbleShape.Direction {
         switch _message.participant {
         case .assistant:
-            return .left
+            .left
         case .user:
-            return .right
+            .right
         default:
-            return .center
+            .center
         }
     }
-    
+
+    var fontColor: Color {
+        _message.participant != .assistant || colorScheme == .dark ? .white : .black
+    }
+
+    var staticDotColor: Color { Color(UIColor.lightGray) }
+    var animatingDotColor: Color {
+        if _message.participant == .user {
+            staticDotColor
+        } else {
+            .white
+        }
+    }
+
     var body: some View {
-        let fontColor: Color = (_message.participant != .assistant || colorScheme == .dark) ? Color(UIColor.white) : Color(UIColor.black)
-        
-        return Group {
+        Group {
             if _message.typingInProgress {
-                let staticDotColor = _message.participant == .user ? Color(UIColor.lightGray) : Color(UIColor.lightGray)
-                let animatingDotColor = _message.participant == .user ? Color(UIColor.lightGray) : Color(UIColor.white)
                 TypingIndicatorView(staticDotColor: staticDotColor, animatingDotColor: animatingDotColor)
                     .padding(10)
                     .background(backgroundColor)

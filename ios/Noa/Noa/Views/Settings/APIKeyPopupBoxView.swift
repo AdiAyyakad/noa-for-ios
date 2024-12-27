@@ -43,7 +43,13 @@ struct APIKeyPopupBoxView: View {
             Button {
                 _settings.openAiApiKey = _openAIKey
                 _settings.stabilityAiApiKey = _stabilityAIKey
-                closeWithAnimation()
+
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.scale = 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        self.popUpApiBox.toggle()
+                    }
+                }
             } label: {
                 Text("Done")
                     .bold()
@@ -65,15 +71,6 @@ struct APIKeyPopupBoxView: View {
             // Fetch existing API key
             _openAIKey = _settings.openAiApiKey
             _stabilityAIKey = _settings.stabilityAiApiKey
-        }
-    }
-
-    func closeWithAnimation() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            self.scale = 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                self.popUpApiBox.toggle()
-            }
         }
     }
 }

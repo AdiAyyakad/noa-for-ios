@@ -19,9 +19,7 @@ struct PopupDeviceView: View {
     let videoURL = Bundle.main.url(forResource: "SpinningMonocle", withExtension: "mp4")!
     
     var body: some View {
-        
         ZStack {
-            
             // Cancel button
             VStack {
                 HStack {
@@ -31,9 +29,9 @@ struct PopupDeviceView: View {
                         // Only the pairing sheet may be dismissed. Updates cannot be interrupted
                         // and the app would be in an undefined state if the device sheet was
                         // hidden while an update was in progress.
-                        Button(action: {
+                        Button {
                             showDeviceSheet = false
-                        }) {
+                        } label: {
                             ZStack {
                                 Circle()
                                     .fill(Color(red: 116/255, green: 116/255, blue: 128/255).opacity(0.08))
@@ -56,10 +54,7 @@ struct PopupDeviceView: View {
             
             // Other stuff
             VStack {
-            
-                Text(deviceSheetType == .pairing
-                     ? "Bring your device close."
-                     : "Updating Software \(updateProgressPercent)%")
+                deviceSheetTypeDescriptiveTextView
                     .font(.system(size: 24, weight: .bold))
                     .multilineTextAlignment(.center)
                     .foregroundColor(Color.black)
@@ -76,18 +71,14 @@ struct PopupDeviceView: View {
                     )
 
                 let buttonEnabled = monocleWithinPairingRange && deviceSheetType == .pairing
-                
-                Button(action: {
+
+                Button {
                     if buttonEnabled {
                         _onConnectPressed?()
                         showDeviceSheet = false // dismiss view
                     }
-                }) {
-                    Text(deviceSheetType == .pairing
-                         ? (monocleWithinPairingRange
-                            ? "Monocle. Connect"
-                            : "Searching")
-                         : "Keep the app open")
+                } label: {
+                    connectionButtonTextView
                         .font(.system(size: 22, weight: .medium))
                         .frame(width: 306, height: 50)
                 }
@@ -100,6 +91,27 @@ struct PopupDeviceView: View {
         }
     }
 
+    @ViewBuilder
+    var deviceSheetTypeDescriptiveTextView: some View {
+        if deviceSheetType == .pairing {
+            Text("Bring your device close.")
+        } else {
+            Text("Updating Software \(updateProgressPercent)%")
+        }
+    }
+
+    @ViewBuilder
+    var connectionButtonTextView: some View {
+        if deviceSheetType == .pairing {
+            if monocleWithinPairingRange {
+                Text("Monocle. Connect")
+            } else {
+                Text("Searching")
+            }
+        } else {
+            Text("Keep the app open")
+        }
+    }
 
     init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, monocleWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, onConnectPressed: (() -> Void)?) {
         _showDeviceSheet = showDeviceSheet

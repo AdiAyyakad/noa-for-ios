@@ -8,45 +8,52 @@
 import SwiftUI
 
 struct MessageView: View {
-    private var _currentMessage: Message
-
+    private let _currentMessage: Message
     @Binding private var _expandedPicture: UIImage?
 
     var body: some View {
         VStack {
             if let picture = _currentMessage.picture {
                 HStack(alignment: .bottom, spacing: 15) {
-                    if _currentMessage.participant != .assistant {
-                        Spacer()
-                    }
+                    leftSpacer
 
                     Image(uiImage: picture)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: 300, maxHeight: 300, alignment: .bottomTrailing)
-                        .padding(.all, 8)
+                        .padding(8)
                         .onTapGesture {
                             _expandedPicture = picture
                         }
 
-                    if _currentMessage.participant != .user {
-                        Spacer()
-                    }
+                    rightSpacer
                 }
             }
             if _currentMessage.text.count > 0 {
                 HStack(alignment: .bottom, spacing: 15) {
-                    if _currentMessage.participant != .assistant {
-                        // User bubble pushed all the way to right, translator will be centered
-                        Spacer()
-                    }
+                    leftSpacer
+
                     MessageContentView(message: _currentMessage)
-                    if _currentMessage.participant != .user {
-                        Spacer()
-                    }
+
+                    rightSpacer
                 }
             }
        }
+    }
+
+    @ViewBuilder
+    var leftSpacer: some View {
+        if _currentMessage.participant != .assistant {
+            // User bubble pushed all the way to right, translator will be centered
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    var rightSpacer: some View {
+        if _currentMessage.participant != .user {
+            Spacer()
+        }
     }
 
     public init(currentMessage: Message, expandedPicture: Binding<UIImage?>) {

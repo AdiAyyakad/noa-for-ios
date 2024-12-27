@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -50,14 +50,12 @@
 		CCCECE6B2A1EB4B100DBB7CA /* Whisper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCECE6A2A1EB4B100DBB7CA /* Whisper.swift */; };
 		CCCECE6D2A1EE7C700DBB7CA /* AIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCECE6C2A1EE7C700DBB7CA /* AIError.swift */; };
 		CCD4B9022A93EB47004E3ADD /* NoaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD4B9012A93EB47004E3ADD /* NoaApp.swift */; };
-		CCEE174F2ACF7E71000170F5 /* Tutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEE174E2ACF7E71000170F5 /* Tutorial.swift */; };
 		CCEE17542ACF8CC1000170F5 /* Tutorial_2.png in Resources */ = {isa = PBXBuildFile; fileRef = CCEE17502ACF8CC1000170F5 /* Tutorial_2.png */; };
 		CCEE17552ACF8CC1000170F5 /* Tutorial_5.png in Resources */ = {isa = PBXBuildFile; fileRef = CCEE17512ACF8CC1000170F5 /* Tutorial_5.png */; };
 		CCEE17562ACF8CC1000170F5 /* Tutorial_4.png in Resources */ = {isa = PBXBuildFile; fileRef = CCEE17522ACF8CC1000170F5 /* Tutorial_4.png */; };
 		CCEE17572ACF8CC1000170F5 /* Tutorial_3.png in Resources */ = {isa = PBXBuildFile; fileRef = CCEE17532ACF8CC1000170F5 /* Tutorial_3.png */; };
 		CCF9DA812A5C9C46004C1EAE /* SettingsMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCF9DA802A5C9C46004C1EAE /* SettingsMenuView.swift */; };
 		CCF9DA832A5C9DFB004C1EAE /* APIKeyPopupBoxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCF9DA822A5C9DFB004C1EAE /* APIKeyPopupBoxView.swift */; };
-		CCF9DA852A5E5FFC004C1EAE /* ColorModeAdaptiveImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCF9DA842A5E5FFC004C1EAE /* ColorModeAdaptiveImage.swift */; };
 		F8B8D4792A71761700817A24 /* LoopingVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B8D4782A71761700817A24 /* LoopingVideoPlayer.swift */; };
 		F8BC4DE52A4DBD680005F6F0 /* DeviceScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8BC4DE42A4DBD680005F6F0 /* DeviceScreenView.swift */; };
 /* End PBXBuildFile section */
@@ -139,17 +137,19 @@
 		CCCECE722A1EF36C00DBB7CA /* Question_CPU.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Question_CPU.wav; sourceTree = "<group>"; };
 		CCCECE732A1EF36C00DBB7CA /* Question_Lizards.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Question_Lizards.wav; sourceTree = "<group>"; };
 		CCD4B9012A93EB47004E3ADD /* NoaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoaApp.swift; sourceTree = "<group>"; };
-		CCEE174E2ACF7E71000170F5 /* Tutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tutorial.swift; sourceTree = "<group>"; };
 		CCEE17502ACF8CC1000170F5 /* Tutorial_2.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Tutorial_2.png; sourceTree = "<group>"; };
 		CCEE17512ACF8CC1000170F5 /* Tutorial_5.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Tutorial_5.png; sourceTree = "<group>"; };
 		CCEE17522ACF8CC1000170F5 /* Tutorial_4.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Tutorial_4.png; sourceTree = "<group>"; };
 		CCEE17532ACF8CC1000170F5 /* Tutorial_3.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Tutorial_3.png; sourceTree = "<group>"; };
 		CCF9DA802A5C9C46004C1EAE /* SettingsMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsMenuView.swift; sourceTree = "<group>"; };
 		CCF9DA822A5C9DFB004C1EAE /* APIKeyPopupBoxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyPopupBoxView.swift; sourceTree = "<group>"; };
-		CCF9DA842A5E5FFC004C1EAE /* ColorModeAdaptiveImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorModeAdaptiveImage.swift; sourceTree = "<group>"; };
 		F8B8D4782A71761700817A24 /* LoopingVideoPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopingVideoPlayer.swift; sourceTree = "<group>"; };
 		F8BC4DE42A4DBD680005F6F0 /* DeviceScreenView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DeviceScreenView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		4032515F2D1F69E0001546B6 /* Util */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Util; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		CC4E3ABD2A00BA4C0058AC20 /* Frameworks */ = {
@@ -224,9 +224,8 @@
 				CC00399F2A6DA4A2009E3BAC /* Device */,
 				CC00399D2A6DA3CB009E3BAC /* Chat */,
 				CC00399E2A6DA3DF009E3BAC /* Settings */,
+				4032515F2D1F69E0001546B6 /* Util */,
 				CC0039A42A6DA57E009E3BAC /* ContentView.swift */,
-				CCF9DA842A5E5FFC004C1EAE /* ColorModeAdaptiveImage.swift */,
-				CCEE174E2ACF7E71000170F5 /* Tutorial.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -428,6 +427,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				4032515F2D1F69E0001546B6 /* Util */,
+			);
 			name = Noa;
 			packageProductDependencies = (
 				CC5274812B7AD35B00593B67 /* NordicDFU */,
@@ -564,8 +566,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CCF9DA852A5E5FFC004C1EAE /* ColorModeAdaptiveImage.swift in Sources */,
-				CCEE174F2ACF7E71000170F5 /* Tutorial.swift in Sources */,
 				CC27DC552A0304D600A942A9 /* TypingIndicatorView.swift in Sources */,
 				F8BC4DE52A4DBD680005F6F0 /* DeviceScreenView.swift in Sources */,
 				CC00398B2A6A4F11009E3BAC /* BluetoothManager.swift in Sources */,

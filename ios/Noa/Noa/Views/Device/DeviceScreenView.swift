@@ -29,20 +29,24 @@ struct DeviceScreenView: View {
     @Binding var monocleWithinPairingRange: Bool
     @Binding var updateProgressPercent: Int
     @Environment(\.openURL) var openURL
-    @Environment(\.colorScheme) var colorScheme
 
     private let _onConnectPressed: (() -> Void)?
     
     var body: some View {
         ZStack {
-            colorScheme == .dark ? Color(red: 28/255, green: 28/255, blue: 30/255).edgesIgnoringSafeArea(.all) : Color(red: 242/255, green: 242/255, blue: 247/255).edgesIgnoringSafeArea(.all)
+            ColorModeAdaptiveView(
+                light: Color(red: 242/255, green: 242/255, blue: 247/255),
+                dark: Color(red: 28/255, green: 28/255, blue: 30/255)
+            )
+            .edgesIgnoringSafeArea(.all)
+
             VStack {
                 VStack {
                     let light = Image("BrilliantLabsLogo")
                         .resizable()
                     let dark = Image("BrilliantLabsLogo_Dark")
                         .resizable()
-                    ColorModeAdaptiveImage(light: light, dark: dark)
+                    ColorModeAdaptiveView(light: light, dark: dark)
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 100, height: 12)
                         .padding(.top, 80)

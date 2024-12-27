@@ -11,9 +11,6 @@ import SwiftUI
 
 struct TypingIndicatorView: View {
     @State private var _animatingDotIdx = 3
-
-    private let _dotSize: CGFloat = 10
-    private let _speed: Double = 0.3
     private let _staticColor: Color
     private let _animatingColor: Color
 
@@ -26,13 +23,13 @@ struct TypingIndicatorView: View {
         HStack(alignment: .firstTextBaseline) {
             ForEach(0..<3) { i in
                 Capsule()
-                    .foregroundColor((self._animatingDotIdx == i) ? self._animatingColor : self._staticColor)
-                    .frame(width: self._dotSize, height: (self._animatingDotIdx == i) ? self._dotSize/3 : self._dotSize)
-                    .animation(Animation.spring(response: 0.5, dampingFraction: 0.7, blendDuration: 0.1).speed(2), value: _animatingDotIdx)
+                    .foregroundColor((_animatingDotIdx == i) ? _animatingColor : _staticColor)
+                    .frame(width: 10, height: 10 / (_animatingDotIdx == i ? 3 : 1))
+                    .animation(.spring(response: 0.5, dampingFraction: 0.7, blendDuration: 0.1).speed(2), value: _animatingDotIdx)
             }
         }
         .onAppear {
-            Timer.scheduledTimer(withTimeInterval: self._speed, repeats: true) { _ in
+            Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
                 self._animatingDotIdx = TypingIndicatorView.selectNextDotRandomly(currentDotIdx: self._animatingDotIdx)
             }
         }
@@ -40,8 +37,8 @@ struct TypingIndicatorView: View {
 
     // Select next dot randomly without repeating current dot
     private static func selectNextDotRandomly(currentDotIdx: Int) -> Int {
-        let allDots = [ 0, 1, 2 ]
-        let candidateDots = allDots.filter { $0 != currentDotIdx }
+        var candidateDots = [ 0, 1, 2 ]
+        candidateDots.remove(at: currentDotIdx) // idx value == the real index, so just remove that number.
         return candidateDots[Int.random(in: 0...1)]
     }
 }

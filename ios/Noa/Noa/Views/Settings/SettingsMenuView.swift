@@ -15,24 +15,26 @@ struct SettingsMenuView: View {
     @Binding var bluetoothEnabled: Bool
     @Binding var mode: ChatGPT.Mode
 
-    @State private var _translateEnabled = false
-
     var body: some View {
         Menu {
             let isMonoclePaired = _settings.pairedDeviceID != nil
 
-            Button(action: {
+            Button {
                 popUpApiBox = true
-            }) {
+            } label: {
                 Label("Manage API Keys", systemImage: "person.circle")
             }
 
-            Toggle(isOn: $_translateEnabled) {
+            Toggle(isOn: .init {
+                mode == .translator
+            } set: { newValue in
+                mode = newValue ? .translator : .assistant
+            }) {
                 Label("Translate", systemImage: "globe")
             }
             .toggleStyle(.button)
 
-            Button(role: isMonoclePaired ? .destructive : .none, action: {
+            Button(role: isMonoclePaired ? .destructive : .none) {
                 if isMonoclePaired {
                     // Unpair
                     _settings.pairedDeviceID = nil
@@ -40,7 +42,7 @@ struct SettingsMenuView: View {
 
                 // Always return to pairing screen right after unpairing or when pairing requested
                 showPairingView = true
-            }) {
+            } label: {
                 // Unpair/pair Monocle
                 if isMonoclePaired {
                     Label("Unpair Monocle", systemImage: "wake")
@@ -51,12 +53,6 @@ struct SettingsMenuView: View {
         } label: {
             Image(systemName: "gearshape.fill")
                 .foregroundColor(Color(red: 87/255, green: 199/255, blue: 170/255))
-        }
-        .onAppear {
-            _translateEnabled = mode == .translator
-        }
-        .onChange(of: _translateEnabled) {
-            mode = $0 ? .translator : .assistant
         }
     }
 }
