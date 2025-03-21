@@ -70,12 +70,9 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
     // Monocle characteristic IDs. Note that directionality is from Monocle's perspective (i.e., we
     // transmit to Monocle on the receive characteristic).
-    private static let _serialService = CBUUID(string: "6e400001-b5a3-f393-e0a9-e50e24dcca9e")
-    private static let _serialTx = CBUUID(string: "6e400003-b5a3-f393-e0a9-e50e24dcca9e")
-    private static let _serialRx = CBUUID(string: "6e400002-b5a3-f393-e0a9-e50e24dcca9e")
-    private static let _dataService = CBUUID(string: "e5700001-7bac-429a-b4ce-57ff900f479d")
-    private static let _dataTx = CBUUID(string: "e5700003-7bac-429a-b4ce-57ff900f479d")
-    private static let _dataRx = CBUUID(string: "e5700002-7bac-429a-b4ce-57ff900f479d")
+    private static let _serialService = CBUUID(string: "7A230001-5475-A6A4-654C-8431F6AD49C4")
+    private static let _serialTx = CBUUID(string: "7A230002-5475-A6A4-654C-8431F6AD49C4")
+    private static let _serialRx = CBUUID(string: "7A230002-5475-A6A4-654C-8431F6AD49C4")
     private static let _dfuService = CBUUID(string: "0xfe59")
 
     // Monocle Bluetooth manager
@@ -132,10 +129,10 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         // Instantiate Bluetooth managers first
         _monocleBluetooth = BluetoothManager(
             autoConnectByProximity: false,  // must not auto-connect during pairing sequence; user must have time to click Connect
-            peripheralName: "monocle",
-            services: [Self._serialService: "Serial", Self._dataService: "Data"],
-            receiveCharacteristics: [Self._serialTx: "SerialTx", Self._dataTx: "DataTx",],
-            transmitCharacteristics: [Self._serialRx: "SerialRx", Self._dataRx: "DataRx"],
+            peripheralName: "frame",
+            services: [Self._serialService: "Serial"],
+            receiveCharacteristics: [Self._serialTx: "SerialTx"],
+            transmitCharacteristics: [Self._serialRx: "SerialRx"],
             queue: _bluetoothQueue
         )
 
@@ -259,8 +256,8 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
                 if characteristicID == Self._serialTx {
                     handleSerialDataReceived(value)
-                } else if characteristicID == Self._dataTx {
-                    handleDataReceived(value)
+//                } else if characteristicID == Self._dataTx {
+//                    handleDataReceived(value)
                 }
             }.store(in: &_subscribers)
 
@@ -952,7 +949,7 @@ private extension Controller {
                         // the ID, allowing us to perform a ChatGPT request.
                         let id = UUID()
                         _pendingQueryByID[id] = query
-                        send(text: "pin:" + id.uuidString, to: _monocleBluetooth, on: Self._dataRx)
+                        send(text: "pin:" + id.uuidString, to: _monocleBluetooth, on: Self._serialRx)
                         print("[Controller] Sent transcription ID to Monocle: \(id)")
                     case .translator:
                         // Translation mode: No more network requests to do. Display translation.
@@ -997,7 +994,7 @@ private extension Controller {
 
     func generateImage(prompt: String) {
         // Monocle will not receive anything, tell it to go back to idle (ick = image ack)
-        send(text: "ick:", to: _monocleBluetooth, on: Self._dataRx)
+        send(text: "ick:", to: _monocleBluetooth, on: Self._serialRx)
 
         // Attempt to decode image
         guard let picture = UIImage(data: _imageData) else {
@@ -1094,7 +1091,7 @@ private extension Controller {
                 let startIdx = text.index(text.startIndex, offsetBy: idx)
                 let endIdx = text.index(text.startIndex, offsetBy: end)
                 let chunk = command + text[startIdx..<endIdx]
-                _monocleBluetooth.send(text: chunk, on: Self._dataRx)
+                _monocleBluetooth.send(text: chunk, on: Self._serialRx)
                 idx = end
             }
         }
@@ -1124,19 +1121,19 @@ private extension Controller {
             }
 
             // Send "bitmap start" command
-            _monocleBluetooth.send(text: "bst:", on: Self._dataRx)
+            _monocleBluetooth.send(text: "bst:", on: Self._serialRx)
 
             // Send bitmap data
             var idx = 0
             while idx < bitmap.count {
                 let end = min(idx + chunkSize, bitmap.count)
                 let chunk = "bdt:".data(using: .utf8)! + bitmap[idx..<end]
-                _monocleBluetooth.send(data: chunk, on: Self._dataRx)
+                _monocleBluetooth.send(data: chunk, on: Self._serialRx)
                 idx = end
             }
 
             // Send "bitmap end" command
-            _monocleBluetooth.send(text: "ben:", on: Self._dataRx)
+            _monocleBluetooth.send(text: "ben:", on: Self._serialRx)
 
             print("[Controller] Send \(bitmap.count) bytes of bitmap data to Monocle")
         }

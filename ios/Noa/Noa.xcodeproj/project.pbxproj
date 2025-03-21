@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		352D27F82A7B01820019EFDB /* SpinningMonocle.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */; };
 		403C026C2CF4517A00E7B24F /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 403C026B2CF4517A00E7B24F /* ComposableArchitecture */; };
+		40A052352D8BD46F0013A673 /* SetExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A052342D8BD46F0013A673 /* SetExtensions.swift */; };
 		40C98F3A2CF43C2E00E6946F /* ControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C98F392CF43C2E00E6946F /* ControllerTests.swift */; };
 		40CA53F32D1DA29400FC9805 /* Overture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40CA53F22D1DA29400FC9805 /* Overture.swift */; };
 		CC00398B2A6A4F11009E3BAC /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */; };
@@ -79,6 +80,7 @@
 
 /* Begin PBXFileReference section */
 		352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = SpinningMonocle.mp4; sourceTree = "<group>"; };
+		40A052342D8BD46F0013A673 /* SetExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetExtensions.swift; sourceTree = "<group>"; };
 		40C98F392CF43C2E00E6946F /* ControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTests.swift; sourceTree = "<group>"; };
 		40CA53F22D1DA29400FC9805 /* Overture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Overture.swift; sourceTree = "<group>"; };
 		CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
@@ -408,6 +410,7 @@
 				CC3FE00C2A09C8A400756941 /* Settings.swift */,
 				CC200A542A3D589D005C67E0 /* StreamingStringMatcher.swift */,
 				CC6851652A995EA9004EA777 /* UIImage+Extensions.swift */,
+				40A052342D8BD46F0013A673 /* SetExtensions.swift */,
 			);
 			path = Util;
 			sourceTree = "<group>";
@@ -575,6 +578,7 @@
 				CC4E3AF52A01A7A90058AC20 /* ChatMessageStore.swift in Sources */,
 				CC3FE0362A0F12F700756941 /* ChatGPT.swift in Sources */,
 				CCBC46262A02101A00871C12 /* Participant.swift in Sources */,
+				40A052352D8BD46F0013A673 /* SetExtensions.swift in Sources */,
 				CCB2F9622A2568EE00F24F2D /* Controller.swift in Sources */,
 				CCCECE6D2A1EE7C700DBB7CA /* AIError.swift in Sources */,
 				CC4E3AF12A00BC8A0058AC20 /* MessageContentView.swift in Sources */,

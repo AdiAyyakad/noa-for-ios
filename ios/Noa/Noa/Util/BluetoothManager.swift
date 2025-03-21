@@ -93,7 +93,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     private let _allowAutoConnectByProximity: Bool
 
-    private var _discoveredPeripherals: [(peripheral: CBPeripheral, rssi: Float, timeout: TimeInterval)] = []
+    struct DiscoveredPeripheral: Hashable {
+        var peripheral: CBPeripheral, rssi: Float, timeout: TimeInterval
+    }
+    private var _discoveredPeripherals: Set<DiscoveredPeripheral> = .init()
     private var _discoveryTimer: Timer?
 
     private var _connectedPeripheral: CBPeripheral? {
@@ -208,15 +211,15 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
         // Delete anything that has timed out
         let now = Date.timeIntervalSinceReferenceDate
-        _discoveredPeripherals.removeAll { $0.timeout >= now }
+        _discoveredPeripherals = _discoveredPeripherals.filter { $0.timeout < now }
         if numPeripheralsBefore != _discoveredPeripherals.count {
             didChange = true
         }
 
         // If we are adding a peripheral, remove dupes first
         if let peripheral {
-            _discoveredPeripherals.removeAll { $0.peripheral.isEqual(peripheral) }
-            _discoveredPeripherals.append((peripheral: peripheral, rssi: rssi, timeout: now + 10))  // timeout after 10 seconds
+            _discoveredPeripherals = _discoveredPeripherals + .init(peripheral: peripheral, rssi: rssi, timeout: now + 10)
+
             didChange = true
         }
 
