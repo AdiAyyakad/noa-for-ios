@@ -32,26 +32,26 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
     // MARK: - Public State
 
-    @Published private(set) var isMonocleConnected = false
-    @Published private(set) var pairedMonocleID: UUID?
+    @Published private(set) var isFrameConnected = false
+    @Published private(set) var pairedFrameID: UUID?
 
-    /// Reports nearest Monocle within the required RSSI threshold for pairing. Only updates when unpaired otherwise value may be stale.
-    @Published private(set) var nearestMonocleID: UUID?
+    /// Reports nearest Frame within the required RSSI threshold for pairing. Only updates when unpaired otherwise value may be stale.
+    @Published private(set) var nearestFrameID: UUID?
 
     /// Use this to enable/disable Bluetooth
     @Published public var bluetoothEnabled = false {
         didSet {
-            // Pass through to Bluetooth managers. We look for both Monocle and DfuTarg in case we
+            // Pass through to Bluetooth managers. We look for both Frame and DfuTarg in case we
             // need to resume a firmware update that was interrupted.
             let enabled = bluetoothEnabled
-            _bluetoothQueue.async { [weak _monocleBluetooth, weak _dfuBluetooth] in
-                _monocleBluetooth?.enabled = enabled
+            _bluetoothQueue.async { [weak _frameBluetooth, weak _dfuBluetooth] in
+                _frameBluetooth?.enabled = enabled
                 _dfuBluetooth?.enabled = enabled
             }
         }
     }
 
-    @Published private(set) var monocleState = MonocleState.notReady
+    @Published private(set) var frameState = FrameState.notReady
     @Published private(set) var updateProgressPercent: Int = 0
 
     public var mode = ChatGPT.Mode.assistant {
@@ -68,15 +68,15 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     // Bluetooth communication happens on a background thread
     private let _bluetoothQueue = DispatchQueue(label: "Bluetooth", qos: .default)
 
-    // Monocle characteristic IDs. Note that directionality is from Monocle's perspective (i.e., we
-    // transmit to Monocle on the receive characteristic).
+    // Frame characteristic IDs. Note that directionality is from Frame's perspective (i.e., we
+    // transmit to Frame on the receive characteristic).
     private static let _serialService = CBUUID(string: "7A230001-5475-A6A4-654C-8431F6AD49C4")
     private static let _serialTx = CBUUID(string: "7A230002-5475-A6A4-654C-8431F6AD49C4")
-    private static let _serialRx = CBUUID(string: "7A230002-5475-A6A4-654C-8431F6AD49C4")
+    private static let _serialRx = CBUUID(string: "7A230003-5475-A6A4-654C-8431F6AD49C4")
     private static let _dfuService = CBUUID(string: "0xfe59")
 
-    // Monocle Bluetooth manager
-    private let _monocleBluetooth: BluetoothManager
+    // Frame Bluetooth manager
+    private let _frameBluetooth: BluetoothManager
 
     // DFU target Bluetooth manager
     private let _dfuBluetooth: BluetoothManager
@@ -94,8 +94,8 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     private var _state = State.disconnected
     private var _matcher: StreamingStringMatcher?
 
-    private static let _firmwareURL = Bundle.main.url(forResource: "monocle-micropython-v23.248.0754", withExtension: "zip")!
-    private static let _fpgaURL = Bundle.main.url(forResource: "monocle-fpga", withExtension: "bin")!
+    private static let _firmwareURL = Bundle.main.url(forResource: "frame-firmware-v24.310.0800", withExtension: "zip")!
+    private static let _fpgaURL = Bundle.main.url(forResource: "frame-fpga", withExtension: "bin")!
     private let _requiredFirmwareVersion = "v23.248.0754"
     private let _requiredFPGAVersion = "v23.230.0808"
     private var _receivedVersionResponse = ""   // buffer for firmware and FPGA version responses
@@ -113,12 +113,12 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     private var _pendingQueryByID: [UUID: String] = [:]
 
     // Debug audio playback (use setupAudioSession() and playReceivedAudio() on PCM buffer decoded
-    // from Monocle)
+    // from Frame)
     private let _audioEngine = AVAudioEngine()
     private var _playerNode = AVAudioPlayerNode()
     private var _audioConverter: AVAudioConverter?
     private var _playbackFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
-    private let _monocleFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false)!
+    private let _frameFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false)!
 
     // MARK: - Public Methods
 
@@ -127,9 +127,9 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
         _messages = messages
 
         // Instantiate Bluetooth managers first
-        _monocleBluetooth = BluetoothManager(
+        _frameBluetooth = BluetoothManager(
             autoConnectByProximity: false,  // must not auto-connect during pairing sequence; user must have time to click Connect
-            peripheralName: "frame",
+            peripheralName: "Frame",
             services: [Self._serialService: "Serial"],
             receiveCharacteristics: [Self._serialTx: "SerialTx"],
             transmitCharacteristics: [Self._serialRx: "SerialRx"],
@@ -163,42 +163,42 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             }
 
             // Update public state
-            pairedMonocleID = newPairedDeviceID
+            pairedFrameID = newPairedDeviceID
 
             // Begin connection attempts or disconnect
-            _bluetoothQueue.async { [weak _monocleBluetooth] in
-                _monocleBluetooth?.selectedDeviceID = newPairedDeviceID
+            _bluetoothQueue.async { [weak _frameBluetooth] in
+                _frameBluetooth?.selectedDeviceID = newPairedDeviceID
             }
         })
         .store(in: &_subscribers)
 
-        // Changes in nearby list of Monocle devices (arrives on Bluetooth queue)
-        _monocleBluetooth.$discoveredDevices.sink { [weak self] (devices: [(deviceID: UUID, rssi: Float)]) in
+        // Changes in nearby list of Frame devices (arrives on Bluetooth queue)
+        _frameBluetooth.$discoveredDevices.sink { [weak self] (devices: [(deviceID: UUID, rssi: Float)]) in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                // If there is a Monocle that is within pairing distance, broadcast that. We use two
+                // If there is a Frame that is within pairing distance, broadcast that. We use two
                 // thresholds for hysteresis.
                 let thresholdLow: Float = -85
                 let thresholdHigh: Float = -65
                 if let nearestDevice = devices.first {
                     if nearestDevice.rssi > thresholdHigh {
-                        nearestMonocleID = nearestDevice.deviceID
+                        nearestFrameID = nearestDevice.deviceID
                     } else if nearestDevice.rssi < thresholdLow {
-                        nearestMonocleID = nil
+                        nearestFrameID = nil
                     }
                     return
                 }
-                nearestMonocleID = nil
+                nearestFrameID = nil
             }
         }
         .store(in: &_subscribers)
 
-        _monocleBluetooth.$connectedPeripheralID
+        _frameBluetooth.$connectedPeripheralID
             .receive(on: DispatchQueue.main)
             .sink { [weak self] deviceID in
                 guard let self else { return }
                 if let deviceID {
-                    print("[Controller] Monocle connected")
+                    print("[Controller] Frame connected")
 
                     // Did we arrive here as a new connection or because a DFU update was finished?
                     var didFinishDFU = false
@@ -206,7 +206,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
                         didFinishDFU = true
                     }
 
-                    // When Monocle is connected, stop looking for DfuTarg
+                    // When Frame is connected, stop looking for DfuTarg
                     _bluetoothQueue.async { [weak _dfuBluetooth] in
                         _dfuBluetooth?.enabled = false
                     }
@@ -221,7 +221,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
                     // Enter raw REPL mode
                     transitionState(to: .enterRawREPL(didFinishDFU: didFinishDFU))
                 } else {
-                    print("[Controller] Monocle disconnected")
+                    print("[Controller] Frame disconnected")
 
                     // Are we in a DFU state?
                     var isPerformingDFU = false
@@ -236,9 +236,9 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
                     if !isPerformingDFU {
                         // When waiting for DFU target/performing update, a disconnect is expected and we
-                        // don't want to change the state. Otherwise, Monocle has disconnected and we need
+                        // don't want to change the state. Otherwise, Frame has disconnected and we need
                         // to move to the disconnected state. Note DFU target will often connect *before*
-                        // we receive the Monocle disconnect event and continue to progress, hence the need
+                        // we receive the Frame disconnect event and continue to progress, hence the need
                         // to check *all* DFU states.
                         transitionState(to: .disconnected)
                     }
@@ -246,8 +246,8 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             }
             .store(in: &_subscribers)
 
-        // Monocle data received (arrives on Bluetooth queue)
-        _monocleBluetooth.$dataReceived.compactMap { $0 }
+        // Frame data received (arrives on Bluetooth queue)
+        _frameBluetooth.$dataReceived.compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] (received: (characteristic: CBUUID, value: Data)) in
                 guard let self else { return }
@@ -280,7 +280,7 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
                     }
                 } else {
                     // DFU target disconnected (which means update succeeded, in which case device comes back
-                    // up as Monocle, or failed, in which case we will need to retry).
+                    // up as Frame, or failed, in which case we will need to retry).
                     print("[Controller] DFUTarget disconnected")
 
                     DispatchQueue.main.async { [weak self] in
@@ -296,12 +296,12 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
             }.store(in: &_subscribers)
 
         // Set initial state
-        isMonocleConnected = _monocleBluetooth.isConnected
-        pairedMonocleID = _monocleBluetooth.selectedDeviceID
+        isFrameConnected = _frameBluetooth.isConnected
+        pairedFrameID = _frameBluetooth.selectedDeviceID
 
         // Start Bluetooth managers and ensure they are initially disabled
-        _bluetoothQueue.async { [_monocleBluetooth, _dfuBluetooth] in
-            _monocleBluetooth.start()
+        _bluetoothQueue.async { [_frameBluetooth, _dfuBluetooth] in
+            _frameBluetooth.start()
             _dfuBluetooth.start()
         }
         bluetoothEnabled = false
@@ -309,10 +309,10 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
     /// Connect to the nearest device if one exists.
     public func connectToNearest() {
-        if let nearestMonocleID = nearestMonocleID {
+        if let nearestFrameID = nearestFrameID {
             // Connect to this ID. This should propagate through immediately to BluetoothManager
             // and UI.
-            _settings.pairedDeviceID = nearestMonocleID
+            _settings.pairedDeviceID = nearestFrameID
         }
     }
 
@@ -370,15 +370,15 @@ private extension Controller {
         // Perform setup for next state
         switch newState {
         case .disconnected:
-            isMonocleConnected = false
-            monocleState = .notReady
+            isFrameConnected = false
+            frameState = .notReady
             _dfuController = nil
 
         case .enterRawREPL(didFinishDFU: let didFinishDFU):
             // Since firmware v23.181.0720, a Bluetooth race condition has been exposed. If the
-            // iOS app is running and then Monocle is powered on, or if Monocle is restarted
+            // iOS app is running and then Frame is powered on, or if Frame is restarted
             // while the app is running, the raw REPL code is not received and Controller hangs
-            // forever in the waitingForRawREPL state. Monocle probably needs some time before
+            // forever in the waitingForRawREPL state. Frame probably needs some time before
             // its receive characteristic is actually ready to accept data. Transmitting the
             // raw REPL code periodically is unworkable because it can create a pile-up of
             // responses that throws off the firmware detection logic. Instead, we use a delay.
@@ -391,7 +391,7 @@ private extension Controller {
                 transitionState(to: .waitingForRawREPL(didFinishDFU: didFinishDFU))
 
                 // Update public state
-                isMonocleConnected = true
+                isFrameConnected = true
             }
 
         case .waitingForRawREPL(didFinishDFU: let didFinishDFU):
@@ -400,7 +400,7 @@ private extension Controller {
             _currentFPGAVersion = nil
             if !didFinishDFU {
                 // Just connected, we are not currently updating
-                monocleState = .notReady
+                frameState = .notReady
             }
 
         case .waitingForFirmwareVersion:
@@ -412,7 +412,7 @@ private extension Controller {
             transmitFPGAVersionCheck()
 
         case .waitingForARGPTVersion:
-            // Check Monocle script version
+            // Check Frame script version
             transmitVersionCheck()
 
         case .transmittingScripts(scriptTransmissionState: let transmissionState):
@@ -422,13 +422,13 @@ private extension Controller {
 
         case .running:
             // Send ^D to start app
-            send(data: Data([ 0x04 ]), to: _monocleBluetooth, on: Self._serialRx)
+            send(data: Data([ 0x04 ]), to: _frameBluetooth, on: Self._serialRx)
 
             // Not updating anymore
-            monocleState = .ready
+            frameState = .ready
 
         case .initiateDFUAndWaitForDFUTarget:
-            // Kick off firmware update. We will then get a disconnect event when Monocle switches
+            // Kick off firmware update. We will then get a disconnect event when Frame switches
             // to DFU target mode.
             transmitInitiateFirmwareUpdateCommand()
 
@@ -436,15 +436,15 @@ private extension Controller {
             _dfuBluetooth.enabled = true
 
             // Update the firmware...
-            monocleState = .updatingFirmware
+            frameState = .updatingFirmware
             updateProgressPercent = 0
 
             print("[Controller] Firmware update initiated")
 
         case .performDFU(peripheral: let peripheral, rescaleUpdatePercentage: _):
-            // We may enter this state at any time (e.g., if app starts up when Monocle is in DFU
+            // We may enter this state at any time (e.g., if app starts up when Frame is in DFU
             // state due to a previously failed update, etc.). Set the external state.
-            monocleState = .updatingFirmware
+            frameState = .updatingFirmware
             updateProgressPercent = 0
 
             // Instantiate Nordic DFU library object that will handle the firmware update
@@ -452,7 +452,7 @@ private extension Controller {
             _dfuController = _dfuInitiator.start(target: peripheral)
 
         case .initiateFPGAUpdate(maximumDataLength: let maximumDataLength, rescaleUpdatePercentage: let rescaleUpdatePercentage):
-            monocleState = .updatingFPGA
+            frameState = .updatingFPGA
             updateProgressPercent = rescaleUpdatePercentage ? 50 : 0
             _matcher = nil
             let updateState = FPGAUpdateState(maximumDataLength: maximumDataLength, rescaleUpdatePercentage: rescaleUpdatePercentage)
@@ -476,7 +476,7 @@ private extension Controller {
 
     func handleSerialDataReceived(_ receivedValue: Data) {
         let str = String(decoding: receivedValue, as: UTF8.self)
-        print("[Controller] Serial data from Monocle: \(str)")
+        print("[Controller] Serial data from Frame: \(str)")
 
         switch _state {
         case .waitingForRawREPL(didFinishDFU: let didFinishDFU):
@@ -515,13 +515,13 @@ private extension Controller {
         }
 
         let command = String(decoding: receivedValue[0..<4], as: UTF8.self)
-        print("[Controller] Data command from Monocle: \(command)")
+        print("[Controller] Data command from Frame: \(command)")
 
-        onMonocleCommand(command: command, data: receivedValue[4...])
+        onFrameCommand(command: command, data: receivedValue[4...])
     }
 }
 
-// MARK: - Monocle Firmware, FPGA, and Script Transmission
+// MARK: - Frame Firmware, FPGA, and Script Transmission
 
 private extension Controller {
     func onWaitForRawREPLState(receivedString str: String, didFinishDFU: Bool) {
@@ -576,11 +576,11 @@ private extension Controller {
 
             print("[Controller] FPGA version: \(_currentFPGAVersion ?? "unknown")")
 
-            updateMonocleOrProceedToRun(didFinishDFU: didFinishDFU)
+            updateFrameOrProceedToRun(didFinishDFU: didFinishDFU)
         }
     }
 
-    func updateMonocleOrProceedToRun(didFinishDFU: Bool) {
+    func updateFrameOrProceedToRun(didFinishDFU: Bool) {
         if _currentFirmwareVersion != _requiredFirmwareVersion {
             // First, kick off firmware update
             print("[Controller] Firmware update needed. Current version: \(_currentFirmwareVersion ?? "unknown")")
@@ -601,16 +601,16 @@ private extension Controller {
             let rescaleFPGAUpdatePercentage = didFinishDFU
 
             // Do update
-            _bluetoothQueue.async { [weak _monocleBluetooth] in // Bluetooth thread to access maximum data length
-                guard let _monocleBluetooth = _monocleBluetooth else { return }
-                if let maximumDataLength = _monocleBluetooth.maximumDataLength, maximumDataLength > 100 {
+            _bluetoothQueue.async { [weak _frameBluetooth] in // Bluetooth thread to access maximum data length
+                guard let _frameBluetooth = _frameBluetooth else { return }
+                if let maximumDataLength = _frameBluetooth.maximumDataLength, maximumDataLength > 100 {
                     // Need a reasonable MTU size
                     DispatchQueue.main.async { [weak self] in   // back to main thread...
                         self?.transitionState(to: .initiateFPGAUpdate(maximumDataLength: maximumDataLength, rescaleUpdatePercentage: rescaleFPGAUpdatePercentage))
                     }
                 } else {
                     // We don't know the MTU size or it is unreasonably small, cannot update, proceed otherwise
-                    let mtuSize = _monocleBluetooth.maximumDataLength == nil ? "unknown" : "\(_monocleBluetooth.maximumDataLength!)"
+                    let mtuSize = _frameBluetooth.maximumDataLength == nil ? "unknown" : "\(_frameBluetooth.maximumDataLength!)"
                     print("[Controller] Error: Unable to update FPGA. MTU size: \(mtuSize)")
                     DispatchQueue.main.async { [weak self] in
                         self?.transitionState(to: .waitingForARGPTVersion)
@@ -618,7 +618,7 @@ private extension Controller {
                 }
             }
         } else {
-            // Proceed with uploading and running Monocle script
+            // Proceed with uploading and running Frame script
             transitionState(to: .waitingForARGPTVersion)
         }
     }
@@ -704,7 +704,7 @@ private extension Controller {
         }
 
         if _matcher!.matchExists(afterAppending: str) {
-            print("[Controller] App already running on Monocle!")
+            print("[Controller] App already running on Frame!")
             transitionState(to: .running)
             return
         }
@@ -712,7 +712,7 @@ private extension Controller {
         let expectedResponseLength = 2 + expectedVersion.count  // "OK" + version
         if str.contains(">") || _matcher!.charactersProcessed >= expectedResponseLength {
             // Create transmission state object containing files and proceed to transmission state
-            print("[Controller] App not running on Monocle. Will transmit scripts.")
+            print("[Controller] App not running on Frame. Will transmit scripts.")
             let transmissionState = ScriptTransmissionState(filesToTransmit: filesToTransmit)
             transitionState(to: .transmittingScripts(scriptTransmissionState: transmissionState))
             return
@@ -735,7 +735,7 @@ private extension Controller {
 
     func transmitRawREPLCode() {
         // ^C (kill current), ^C (again to be sure), ^A (raw REPL mode)
-        send(data: Data([ 0x03, 0x03, 0x01 ]), to: _monocleBluetooth, on: Self._serialRx)
+        send(data: Data([ 0x03, 0x03, 0x01 ]), to: _frameBluetooth, on: Self._serialRx)
     }
 
     func transmitFirmwareVersionCheck() {
@@ -774,7 +774,7 @@ private extension Controller {
         var data = Data()
         data.append(command)
         data.append(Data([ 0x04 ])) // ^D to execute the command
-        send(data: data, to: _monocleBluetooth, on: Self._serialRx)
+        send(data: data, to: _frameBluetooth, on: Self._serialRx)
     }
 
     func loadFilesForTransmission() -> ([(name: String, content: String)], String) {
@@ -807,7 +807,7 @@ private extension Controller {
         let data = try? Data(contentsOf: url)
         guard let data = data,
               let sourceCode = String(data: data, encoding: .utf8) else {
-            fatalError("Unable to load Monocle Python code from disk")
+            fatalError("Unable to load Frame Python code from disk")
         }
         return sourceCode
     }
@@ -843,7 +843,7 @@ private extension Controller {
         data.append(Data([ 0x04 ])) // ^D to execute the command
 
         // Send!
-        send(data: data, to: _monocleBluetooth, on: Self._serialRx)
+        send(data: data, to: _frameBluetooth, on: Self._serialRx)
         print("[Controller] Sent \(filename): \(data.count) bytes")
     }
 
@@ -855,10 +855,10 @@ private extension Controller {
     }
 }
 
-// MARK: - Monocle Commands
+// MARK: - Frame Commands
 
 private extension Controller {
-    func onMonocleCommand(command: String, data: Data) {
+    func onFrameCommand(command: String, data: Data) {
         if command.starts(with: "ast:") || command.starts(with: "ien:") {
             // Delete currently stored audio and prepare to receive new audio sample over
             // multiple packets
@@ -910,7 +910,7 @@ private extension Controller {
 // MARK: - User Query Flow
 
 private extension Controller {
-    // Step 1: Voice received from Monocle and converted to M4A
+    // Step 1: Voice received from Frame and converted to M4A
     func onVoiceReceived(voiceSample: AVAudioPCMBuffer) {
         print("[Controller] Voice received. Converting to M4A...")
 
@@ -927,7 +927,7 @@ private extension Controller {
         }
     }
 
-    // Step 2a: Transcribe speech to text using Whisper and send transcription UUID to Monocle
+    // Step 2a: Transcribe speech to text using Whisper and send transcription UUID to Frame
     func transcribe(audioFile fileData: Data, mode: ChatGPT.Mode) {
         print("[Controller] Transcribing voice...")
 
@@ -944,13 +944,13 @@ private extension Controller {
                     // No image data: normal operation (assistant or translator)
                     switch mode {
                     case .assistant:
-                        // Store query and send ID to Monocle. We need to do this because we cannot perform
-                        // back-to-back network requests in background mode. Monocle will reply back with
+                        // Store query and send ID to Frame. We need to do this because we cannot perform
+                        // back-to-back network requests in background mode. Frame will reply back with
                         // the ID, allowing us to perform a ChatGPT request.
                         let id = UUID()
                         _pendingQueryByID[id] = query
-                        send(text: "pin:" + id.uuidString, to: _monocleBluetooth, on: Self._serialRx)
-                        print("[Controller] Sent transcription ID to Monocle: \(id)")
+                        send(text: "pin:" + id.uuidString, to: _frameBluetooth, on: Self._serialRx)
+                        print("[Controller] Sent transcription ID to Frame: \(id)")
                     case .translator:
                         // Translation mode: No more network requests to do. Display translation.
                         printToChat(query, as: .translator)
@@ -993,8 +993,8 @@ private extension Controller {
     }
 
     func generateImage(prompt: String) {
-        // Monocle will not receive anything, tell it to go back to idle (ick = image ack)
-        send(text: "ick:", to: _monocleBluetooth, on: Self._serialRx)
+        // Frame will not receive anything, tell it to go back to idle (ick = image ack)
+        send(text: "ick:", to: _frameBluetooth, on: Self._serialRx)
 
         // Attempt to decode image
         guard let picture = UIImage(data: _imageData) else {
@@ -1023,7 +1023,7 @@ private extension Controller {
                 let picture = image.centerCropped(to: CGSize(width: 640, height: 400)) // crop out the letterboxing we had to introduce and return to original size
                 printToChat(prompt, picture: picture, as: .assistant)
                 //TODO: this does not seem to work yet
-                //self?.sendImageToMonocleInChunks(image: picture)
+                //self?.sendImageToFrameInChunks(image: picture)
             }
         }
     }
@@ -1035,8 +1035,8 @@ private extension Controller {
     func printErrorToChat(_ message: String, as participant: Participant) {
         _messages.putMessage(Message(text: message, isError: true, participant: participant))
 
-        // Send all error messages to Monocle
-        sendTextToMonocleInChunks(text: message, isError: true)
+        // Send all error messages to Frame
+        sendTextToFrameInChunks(text: message, isError: true)
 
         print("[Controller] Error printed: \(message)")
     }
@@ -1049,13 +1049,13 @@ private extension Controller {
         _messages.putMessage(Message(text: text, picture: picture, participant: participant))
 
         if participant != .user {
-            // Send AI response to Monocle
-            sendTextToMonocleInChunks(text: text, isError: false)
+            // Send AI response to Frame
+            sendTextToFrameInChunks(text: text, isError: false)
         }
     }
 }
 
-// MARK: - Send to Monocle
+// MARK: - Send to Frame
 
 private extension Controller {
     func send(data: Data, to bluetooth: BluetoothManager, on characteristicID: CBUUID) {
@@ -1070,10 +1070,10 @@ private extension Controller {
         }
     }
 
-    func sendTextToMonocleInChunks(text: String, isError: Bool) {
-        _bluetoothQueue.async { [weak _monocleBluetooth] in
-            guard let _monocleBluetooth = _monocleBluetooth,
-                  var chunkSize = _monocleBluetooth.maximumDataLength else {
+    func sendTextToFrameInChunks(text: String, isError: Bool) {
+        _bluetoothQueue.async { [weak _frameBluetooth] in
+            guard let _frameBluetooth = _frameBluetooth,
+                  var chunkSize = _frameBluetooth.maximumDataLength else {
                 return
             }
 
@@ -1091,13 +1091,13 @@ private extension Controller {
                 let startIdx = text.index(text.startIndex, offsetBy: idx)
                 let endIdx = text.index(text.startIndex, offsetBy: end)
                 let chunk = command + text[startIdx..<endIdx]
-                _monocleBluetooth.send(text: chunk, on: Self._serialRx)
+                _frameBluetooth.send(text: chunk, on: Self._serialRx)
                 idx = end
             }
         }
     }
 
-    func sendImageToMonocleInChunks(image: UIImage) {
+    func sendImageToFrameInChunks(image: UIImage) {
         guard let pixelBuffer = image.toPixelBuffer() else { return }
 
         let bitmap = convertARGB8ToRGB343(pixelBuffer)
@@ -1108,9 +1108,9 @@ private extension Controller {
             return
         }
 
-        _bluetoothQueue.async { [weak _monocleBluetooth] in
-            guard let _monocleBluetooth = _monocleBluetooth,
-                  var chunkSize = _monocleBluetooth.maximumDataLength else {
+        _bluetoothQueue.async { [weak _frameBluetooth] in
+            guard let _frameBluetooth = _frameBluetooth,
+                  var chunkSize = _frameBluetooth.maximumDataLength else {
                 return
             }
 
@@ -1121,21 +1121,21 @@ private extension Controller {
             }
 
             // Send "bitmap start" command
-            _monocleBluetooth.send(text: "bst:", on: Self._serialRx)
+            _frameBluetooth.send(text: "bst:", on: Self._serialRx)
 
             // Send bitmap data
             var idx = 0
             while idx < bitmap.count {
                 let end = min(idx + chunkSize, bitmap.count)
                 let chunk = "bdt:".data(using: .utf8)! + bitmap[idx..<end]
-                _monocleBluetooth.send(data: chunk, on: Self._serialRx)
+                _frameBluetooth.send(data: chunk, on: Self._serialRx)
                 idx = end
             }
 
             // Send "bitmap end" command
-            _monocleBluetooth.send(text: "ben:", on: Self._serialRx)
+            _frameBluetooth.send(text: "ben:", on: Self._serialRx)
 
-            print("[Controller] Send \(bitmap.count) bytes of bitmap data to Monocle")
+            print("[Controller] Send \(bitmap.count) bytes of bitmap data to Frame")
         }
     }
 }
@@ -1163,7 +1163,7 @@ private extension Controller {
         }
 
         // Set up converter
-        _audioConverter = AVAudioConverter(from: _monocleFormat, to: _playbackFormat)
+        _audioConverter = AVAudioConverter(from: _frameFormat, to: _playbackFormat)
     }
 
     func playReceivedAudio(_ pcmBuffer: AVAudioPCMBuffer) {
@@ -1194,8 +1194,8 @@ private extension Controller {
 }
 
 extension Controller {
-    public enum MonocleState {
-        case notReady           // Monocle connection not yet firmly established
+    public enum FrameState {
+        case notReady           // Frame connection not yet firmly established
         case updatingFirmware
         case updatingFPGA
         case ready              // connected, finished all updates, running state
@@ -1208,7 +1208,7 @@ private extension Controller {
         case disconnected
 
         // Startup sequence: raw REPL, check whether firmware and FPGA updates required and perform
-        // them. If DFU was performed and Monocle had to reset, we detect that case so that when we
+        // them. If DFU was performed and Frame had to reset, we detect that case so that when we
         // get to the firmware and FPGA update phase, we can compute the correct relative
         // percentage each contributes. We pass the DFU state along in the enums themselves.
         case enterRawREPL(didFinishDFU: Bool)
@@ -1216,11 +1216,11 @@ private extension Controller {
         case waitingForFirmwareVersion(didFinishDFU: Bool)
         case waitingForFPGAVersion(didFinishDFU: Bool)
 
-        // Continuation of startup sequence: check and update Monocle scripts
+        // Continuation of startup sequence: check and update Frame scripts
         case waitingForARGPTVersion
         case transmittingScripts(scriptTransmissionState: ScriptTransmissionState)
 
-        // Running state: Monocle app is up and able to communicate with iOS
+        // Running state: Frame app is up and able to communicate with iOS
         case running
 
         // Firmware update states
