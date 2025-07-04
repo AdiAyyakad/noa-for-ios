@@ -16,7 +16,7 @@ struct PopupDeviceView: View {
     
     //Video logic
     @State private var triggerUpdate = false
-    let videoURL = Bundle.main.url(forResource: "SpinningFrame", withExtension: "mp4")!
+    let frameIcon = UIImage(named: "FrameIcon")
     
     var body: some View {
         ZStack {
@@ -62,12 +62,9 @@ struct PopupDeviceView: View {
                 
                 Spacer()
                     .overlay(
-                        LoopingVideoPlayer(videoURL: videoURL)
+                        Image(uiImage: frameIcon!)
+                            .resizable()
                             .frame(width: 170, height: 170)
-                            .onAppear {
-                                triggerUpdate.toggle()
-                            }
-                            .id(triggerUpdate)
                     )
 
                 let buttonEnabled = frameWithinPairingRange && deviceSheetType == .pairing
