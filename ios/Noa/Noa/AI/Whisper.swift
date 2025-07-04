@@ -31,7 +31,7 @@
 //    [Whisper] URLSessionDataTask finished
 //    [ChatGPT] URLSession received challenge
 //    [BluetoothManager] Received TX value!
-//    [BluetoothManager] TX value UTF-8 from Monocle: f
+//    [BluetoothManager] TX value UTF-8 from Frame: f
 //
 //
 //    *** START 21:52:41
@@ -40,7 +40,7 @@
 //    [Whisper] URLSessionDataTask received response code 200
 //    [Whisper] Response payload: {"text":"Where do lizards sleep at night?"}
 //    [Whisper] URLSessionDataTask finished
-//    2023-05-24 21:52:42.937529-0700 ChatGPT for Monocle[9390:1683226] Task <107143F9-1572-4564-86F0-92A731E9BF91>.<3> finished with error [-997] Error Domain=NSURLErrorDomain Code=-997 "Lost connection to background transfer service" UserInfo={NSErrorFailingURLStringKey=https://api.openai.com/v1/chat/completions, NSErrorFailingURLKey=https://api.openai.com/v1/chat/completions, _NSURLErrorRelatedURLSessionTaskErrorKey=(
+//    2023-05-24 21:52:42.937529-0700 ChatGPT for Frame[9390:1683226] Task <107143F9-1572-4564-86F0-92A731E9BF91>.<3> finished with error [-997] Error Domain=NSURLErrorDomain Code=-997 "Lost connection to background transfer service" UserInfo={NSErrorFailingURLStringKey=https://api.openai.com/v1/chat/completions, NSErrorFailingURLKey=https://api.openai.com/v1/chat/completions, _NSURLErrorRelatedURLSessionTaskErrorKey=(
 //        "BackgroundDataTask <107143F9-1572-4564-86F0-92A731E9BF91>.<3>",
 //        "LocalDataTask <107143F9-1572-4564-86F0-92A731E9BF91>.<3>"
 //    ), _NSURLErrorFailingURLSessionTaskErrorKey=BackgroundDataTask <107143F9-1572-4564-86F0-92A731E9BF91>.<3>, NSLocalizedDescription=Lost connection to background transfer service}

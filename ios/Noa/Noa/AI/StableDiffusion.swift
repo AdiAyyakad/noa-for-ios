@@ -128,7 +128,7 @@ class StableDiffusion: NSObject {
     }
 
     /// Given a UIImage, expands it so that each side is the next integral multiple of 64 (as
-    /// required by Stable Diffusion), letterboxing and centering the original content. Monocle
+    /// required by Stable Diffusion), letterboxing and centering the original content. Frame
     /// sends images that are 640x400. Cropping them down to 640x384 produces an image
     /// that is *too small* for Stable Diffusion but bumping the size up *just* works.
     /// - Parameter for: Image to expand and obtain PNG data for.

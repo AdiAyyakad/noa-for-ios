@@ -10,13 +10,13 @@ import SwiftUI
 struct PopupDeviceView: View {
     @Binding var showDeviceSheet: Bool
     @Binding var deviceSheetType: DeviceSheetType
-    @Binding var monocleWithinPairingRange: Bool
+    @Binding var frameWithinPairingRange: Bool
     @Binding var updateProgressPercent: Int
     private let _onConnectPressed: (() -> Void)?
     
     //Video logic
     @State private var triggerUpdate = false
-    let videoURL = Bundle.main.url(forResource: "SpinningMonocle", withExtension: "mp4")!
+    let videoURL = Bundle.main.url(forResource: "SpinningFrame", withExtension: "mp4")!
     
     var body: some View {
         ZStack {
@@ -70,7 +70,7 @@ struct PopupDeviceView: View {
                             .id(triggerUpdate)
                     )
 
-                let buttonEnabled = monocleWithinPairingRange && deviceSheetType == .pairing
+                let buttonEnabled = frameWithinPairingRange && deviceSheetType == .pairing
 
                 Button {
                     if buttonEnabled {
@@ -103,8 +103,8 @@ struct PopupDeviceView: View {
     @ViewBuilder
     var connectionButtonTextView: some View {
         if deviceSheetType == .pairing {
-            if monocleWithinPairingRange {
-                Text("Monocle. Connect")
+            if frameWithinPairingRange {
+                Text("Frame. Connect")
             } else {
                 Text("Searching")
             }
@@ -113,10 +113,10 @@ struct PopupDeviceView: View {
         }
     }
 
-    init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, monocleWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, onConnectPressed: (() -> Void)?) {
+    init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, frameWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, onConnectPressed: (() -> Void)?) {
         _showDeviceSheet = showDeviceSheet
         _deviceSheetType = deviceSheetType
-        _monocleWithinPairingRange = monocleWithinPairingRange
+        _frameWithinPairingRange = frameWithinPairingRange
         _updateProgressPercent = updateProgressPercent
         _onConnectPressed = onConnectPressed
     }

@@ -14,8 +14,8 @@ struct ChatView: View {
     @EnvironmentObject private var _chatMessageStore: ChatMessageStore
     @EnvironmentObject private var _settings: Settings
 
-    // Monocle state
-    @Binding private var _isMonocleConnected: Bool
+    // Frame state
+    @Binding private var _isFrameConnected: Bool
 
     // Bluetooth state
     @Binding private var _bluetoothEnabled: Bool
@@ -95,7 +95,7 @@ struct ChatView: View {
                 // Bottom bar: connection status and text entry
                 if _expandedPicture == nil {
                     ChatTextFieldView(
-                        isMonocleConnected: $_isMonocleConnected,
+                        isFrameConnected: $_isFrameConnected,
                         textInput: $_textInput,
                         onTextSubmitted: _onTextSubmitted
                     )
@@ -139,14 +139,14 @@ struct ChatView: View {
     }
 
     public init(
-        isMonocleConnected: Binding<Bool>,
+        isFrameConnected: Binding<Bool>,
         bluetoothEnabled: Binding<Bool>,
         showPairingView: Binding<Bool>,
         mode: Binding<ChatGPT.Mode>,
         onTextSubmitted: ((String) -> Void)? = nil,
         onClearChatButtonPressed: (() -> Void)? = nil
     ) {
-        __isMonocleConnected = isMonocleConnected
+        __isFrameConnected = isFrameConnected
         __bluetoothEnabled = bluetoothEnabled
         __showPairingView = showPairingView
         __mode = mode
@@ -189,7 +189,7 @@ fileprivate struct ChatTitleBarView: View {
 }
 
 fileprivate struct ChatTextFieldView: View {
-    @Binding var isMonocleConnected: Bool
+    @Binding var isFrameConnected: Bool
     @Binding var textInput: String
     let onTextSubmitted: ((String) -> Void)?
 
@@ -197,7 +197,7 @@ fileprivate struct ChatTextFieldView: View {
         VStack {
             // Connection status
             VStack {
-                if !isMonocleConnected  {
+                if !isFrameConnected  {
                     Text("Not Connected \(Image(systemName: "exclamationmark.circle"))")
                         .foregroundColor(Color.red)
                         .padding(.bottom)
@@ -303,7 +303,7 @@ struct ChatView_Previews: PreviewProvider {
 
     static var previews: some View {
         ChatView(
-            isMonocleConnected: .constant(false),
+            isFrameConnected: .constant(false),
             bluetoothEnabled: .constant(false),
             showPairingView: .constant(false),
             mode: .constant(.assistant)

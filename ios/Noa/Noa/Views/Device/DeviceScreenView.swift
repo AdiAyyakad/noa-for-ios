@@ -26,7 +26,7 @@ enum DeviceSheetType {
 struct DeviceScreenView: View {
     @Binding var showDeviceSheet: Bool
     @Binding var deviceSheetType: DeviceSheetType
-    @Binding var monocleWithinPairingRange: Bool
+    @Binding var frameWithinPairingRange: Bool
     @Binding var updateProgressPercent: Int
     @Environment(\.openURL) var openURL
 
@@ -57,7 +57,7 @@ struct DeviceScreenView: View {
                     
                     Spacer()
                 
-                    Text("Let’s set up your Monocle. Take it out of the case, and bring it close.")
+                    Text("Let’s set up your Frame. Take it out of the case, and bring it close.")
                         .font(.system(size: 15))
                         .frame(width: 314, height: 60)
                     
@@ -82,7 +82,7 @@ struct DeviceScreenView: View {
                                 PopupDeviceView(
                                     showDeviceSheet: $showDeviceSheet,
                                     deviceSheetType: $deviceSheetType,
-                                    monocleWithinPairingRange: $monocleWithinPairingRange,
+                                    frameWithinPairingRange: $frameWithinPairingRange,
                                     updateProgressPercent: $updateProgressPercent,
                                     onConnectPressed: _onConnectPressed
                                 )
@@ -94,10 +94,10 @@ struct DeviceScreenView: View {
         .ignoresSafeArea(.all)
     }
 
-    init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, monocleWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, onConnectPressed: (() -> Void)?) {
+    init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, frameWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, onConnectPressed: (() -> Void)?) {
         _showDeviceSheet = showDeviceSheet
         _deviceSheetType = deviceSheetType
-        _monocleWithinPairingRange = monocleWithinPairingRange
+        _frameWithinPairingRange = frameWithinPairingRange
         _updateProgressPercent = updateProgressPercent
         _onConnectPressed = onConnectPressed
     }
@@ -108,7 +108,7 @@ struct DeviceScreenView_Previews: PreviewProvider {
         DeviceScreenView(
             showDeviceSheet: .constant(true),
             deviceSheetType: .constant(.firmwareUpdate),
-            monocleWithinPairingRange: .constant(false),
+            frameWithinPairingRange: .constant(false),
             updateProgressPercent: .constant(50),
             onConnectPressed: { print("Connect pressed") }
         )

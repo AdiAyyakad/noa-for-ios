@@ -17,7 +17,7 @@ struct SettingsMenuView: View {
 
     var body: some View {
         Menu {
-            let isMonoclePaired = _settings.pairedDeviceID != nil
+            let isFramePaired = _settings.pairedDeviceID != nil
 
             Button {
                 popUpApiBox = true
@@ -34,8 +34,8 @@ struct SettingsMenuView: View {
             }
             .toggleStyle(.button)
 
-            Button(role: isMonoclePaired ? .destructive : .none) {
-                if isMonoclePaired {
+            Button(role: isFramePaired ? .destructive : .none) {
+                if isFramePaired {
                     // Unpair
                     _settings.pairedDeviceID = nil
                 }
@@ -43,11 +43,11 @@ struct SettingsMenuView: View {
                 // Always return to pairing screen right after unpairing or when pairing requested
                 showPairingView = true
             } label: {
-                // Unpair/pair Monocle
-                if isMonoclePaired {
-                    Label("Unpair Monocle", systemImage: "wake")
+                // Unpair/pair Frame
+                if isFramePaired {
+                    Label("Unpair Frame", systemImage: "wake")
                 } else {
-                    Label("Pair Monocle", systemImage: "wake")
+                    Label("Pair Frame", systemImage: "wake")
                 }
             }
         } label: {
