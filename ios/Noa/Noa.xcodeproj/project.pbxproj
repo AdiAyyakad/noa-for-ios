@@ -10,6 +10,11 @@
 		352D27F82A7B01820019EFDB /* SpinningMonocle.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */; };
 		403C026C2CF4517A00E7B24F /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 403C026B2CF4517A00E7B24F /* ComposableArchitecture */; };
 		40A052352D8BD46F0013A673 /* SetExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A052342D8BD46F0013A673 /* SetExtensions.swift */; };
+		40BBF7442E17B70600465F82 /* state.lua in Resources */ = {isa = PBXBuildFile; fileRef = 40BBF7412E17B70600465F82 /* state.lua */; };
+		40BBF7452E17B70600465F82 /* main.lua in Resources */ = {isa = PBXBuildFile; fileRef = 40BBF7402E17B70600465F82 /* main.lua */; };
+		40BBF7462E17B70600465F82 /* graphics.lua in Resources */ = {isa = PBXBuildFile; fileRef = 40BBF73F2E17B70600465F82 /* graphics.lua */; };
+		40BBF7472E17B70600465F82 /* frame-firmware-v24.310.0800.zip in Resources */ = {isa = PBXBuildFile; fileRef = 40BBF73D2E17B70600465F82 /* frame-firmware-v24.310.0800.zip */; };
+		40BBF7492E17B73300465F82 /* FrameIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = 40BBF7482E17B73300465F82 /* FrameIcon.png */; };
 		40C98F3A2CF43C2E00E6946F /* ControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C98F392CF43C2E00E6946F /* ControllerTests.swift */; };
 		40CA53F32D1DA29400FC9805 /* Overture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40CA53F22D1DA29400FC9805 /* Overture.swift */; };
 		CC00398B2A6A4F11009E3BAC /* BluetoothManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */; };
@@ -81,6 +86,11 @@
 /* Begin PBXFileReference section */
 		352D27F72A7B01820019EFDB /* SpinningMonocle.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = SpinningMonocle.mp4; sourceTree = "<group>"; };
 		40A052342D8BD46F0013A673 /* SetExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetExtensions.swift; sourceTree = "<group>"; };
+		40BBF73D2E17B70600465F82 /* frame-firmware-v24.310.0800.zip */ = {isa = PBXFileReference; lastKnownFileType = archive.zip; path = "frame-firmware-v24.310.0800.zip"; sourceTree = "<group>"; };
+		40BBF73F2E17B70600465F82 /* graphics.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = graphics.lua; sourceTree = "<group>"; };
+		40BBF7402E17B70600465F82 /* main.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.lua; sourceTree = "<group>"; };
+		40BBF7412E17B70600465F82 /* state.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = state.lua; sourceTree = "<group>"; };
+		40BBF7482E17B73300465F82 /* FrameIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = FrameIcon.png; sourceTree = "<group>"; };
 		40C98F392CF43C2E00E6946F /* ControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTests.swift; sourceTree = "<group>"; };
 		40CA53F22D1DA29400FC9805 /* Overture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Overture.swift; sourceTree = "<group>"; };
 		CC00398A2A6A4F11009E3BAC /* BluetoothManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothManager.swift; sourceTree = "<group>"; };
@@ -188,8 +198,36 @@
 				CCEE17532ACF8CC1000170F5 /* Tutorial_3.png */,
 				CCEE17522ACF8CC1000170F5 /* Tutorial_4.png */,
 				CCEE17512ACF8CC1000170F5 /* Tutorial_5.png */,
+				40BBF7482E17B73300465F82 /* FrameIcon.png */,
 			);
 			path = "UI Assets";
+			sourceTree = "<group>";
+		};
+		40BBF73E2E17B70600465F82 /* Firmware */ = {
+			isa = PBXGroup;
+			children = (
+				40BBF73D2E17B70600465F82 /* frame-firmware-v24.310.0800.zip */,
+			);
+			path = Firmware;
+			sourceTree = "<group>";
+		};
+		40BBF7422E17B70600465F82 /* Scripts */ = {
+			isa = PBXGroup;
+			children = (
+				40BBF73F2E17B70600465F82 /* graphics.lua */,
+				40BBF7402E17B70600465F82 /* main.lua */,
+				40BBF7412E17B70600465F82 /* state.lua */,
+			);
+			path = Scripts;
+			sourceTree = "<group>";
+		};
+		40BBF7432E17B70600465F82 /* Frame Assets */ = {
+			isa = PBXGroup;
+			children = (
+				40BBF73E2E17B70600465F82 /* Firmware */,
+				40BBF7422E17B70600465F82 /* Scripts */,
+			);
+			path = "Frame Assets";
 			sourceTree = "<group>";
 		};
 		CC00398C2A6B7F4E009E3BAC /* Scripts */ = {
@@ -307,19 +345,20 @@
 		CC4E3AC22A00BA4C0058AC20 /* Noa */ = {
 			isa = PBXGroup;
 			children = (
-				CCB2F9642A2598E900F24F2D /* Util */,
 				CC3FE0342A0F12C800756941 /* AI */,
-				CC4E3AED2A00BBB00058AC20 /* Chat */,
-				CC00399C2A6DA398009E3BAC /* Views */,
-				CCD4B9012A93EB47004E3ADD /* NoaApp.swift */,
-				CCB2F9612A2568EE00F24F2D /* Controller.swift */,
-				CC3FE00A2A09C0BF00756941 /* Settings.bundle */,
-				CC3FE0172A0B215700756941 /* Noa-Info.plist */,
 				CC4E3AC72A00BA4C0058AC20 /* Assets.xcassets */,
-				352D27F62A7B01480019EFDB /* UI Assets */,
-				CC3FE0272A0EF80300756941 /* Test Assets */,
+				CC4E3AED2A00BBB00058AC20 /* Chat */,
+				CCB2F9612A2568EE00F24F2D /* Controller.swift */,
+				40BBF7432E17B70600465F82 /* Frame Assets */,
 				CCB2F9632A25812B00F24F2D /* Monocle Assets */,
+				CC3FE0172A0B215700756941 /* Noa-Info.plist */,
+				CCD4B9012A93EB47004E3ADD /* NoaApp.swift */,
 				CC4E3AC92A00BA4D0058AC20 /* Preview Content */,
+				CC3FE00A2A09C0BF00756941 /* Settings.bundle */,
+				CC3FE0272A0EF80300756941 /* Test Assets */,
+				352D27F62A7B01480019EFDB /* UI Assets */,
+				CCB2F9642A2598E900F24F2D /* Util */,
+				CC00399C2A6DA398009E3BAC /* Views */,
 			);
 			path = Noa;
 			sourceTree = "<group>";
@@ -540,8 +579,13 @@
 				CCEE17542ACF8CC1000170F5 /* Tutorial_2.png in Resources */,
 				CC200A502A37E396005C67E0 /* states.py in Resources */,
 				CC200A4D2A37E38C005C67E0 /* main.py in Resources */,
+				40BBF7442E17B70600465F82 /* state.lua in Resources */,
+				40BBF7452E17B70600465F82 /* main.lua in Resources */,
+				40BBF7462E17B70600465F82 /* graphics.lua in Resources */,
+				40BBF7472E17B70600465F82 /* frame-firmware-v24.310.0800.zip in Resources */,
 				CCEE17552ACF8CC1000170F5 /* Tutorial_5.png in Resources */,
 				CC212D722A9E764B0093479F /* photo.py in Resources */,
+				40BBF7492E17B73300465F82 /* FrameIcon.png in Resources */,
 				CCEE17562ACF8CC1000170F5 /* Tutorial_4.png in Resources */,
 				CC4E3AC82A00BA4C0058AC20 /* Assets.xcassets in Resources */,
 				CCEE17572ACF8CC1000170F5 /* Tutorial_3.png in Resources */,
