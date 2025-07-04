@@ -339,11 +339,6 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         let name = peripheral.name ?? ""
         Logger.bluetoothManager.log("[BluetoothManager] Discovered peripheral: name=\(name), UUID=\(peripheral.identifier), RSSI=\(RSSI)")
 
-        guard name == _peripheralName else {
-            updateDiscoveredPeripherals()
-            return
-        }
-
         updateDiscoveredPeripherals(with: peripheral, rssi: RSSI.floatValue)
 
         guard _connectedPeripheral == nil else { return } // Already connected
