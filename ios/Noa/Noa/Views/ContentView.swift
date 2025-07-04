@@ -17,9 +17,9 @@ struct ContentView: View {
 
     private var _tutorialTask: Task<(), Error>?
 
-    /// Monocle state (as reported by Controller)
-    @State private var _isMonocleConnected = false
-    @State private var _monocleWithinPairingRange = false   // only updated when no Monocle yet paired
+    /// Frame state (as reported by Controller)
+    @State private var _isFrameConnected = false
+    @State private var _frameWithinPairingRange = false   // only updated when no Frame yet paired
 
     /// Bluetooth state
     @State private var _bluetoothEnabled = false
@@ -47,7 +47,7 @@ struct ContentView: View {
                 DeviceScreenView(
                     showDeviceSheet: $_showDeviceSheet,
                     deviceSheetType: $_deviceSheetType,
-                    monocleWithinPairingRange: $_monocleWithinPairingRange,
+                    frameWithinPairingRange: $_frameWithinPairingRange,
                     updateProgressPercent: $_updateProgressPercent,
                     onConnectPressed: { [weak _controller] in
                         _controller?.connectToNearest()
@@ -68,7 +68,7 @@ struct ContentView: View {
                 }
             } else {
                 ChatView(
-                    isMonocleConnected: $_isMonocleConnected,
+                    isFrameConnected: $_isFrameConnected,
                     bluetoothEnabled: $_bluetoothEnabled,
                     showPairingView: $_showDeviceSheet,
                     mode: $_mode,
@@ -93,24 +93,24 @@ struct ContentView: View {
         }
         .onAppear {
             // Initialize state
-            _isMonocleConnected = _controller.isMonocleConnected
-            _monocleWithinPairingRange = _controller.nearestMonocleID != nil
+            _isFrameConnected = _controller.isFrameConnected
+            _frameWithinPairingRange = _controller.nearestFrameID != nil
             _bluetoothEnabled = _controller.bluetoothEnabled
-            _firstTimeConnecting = _controller.pairedMonocleID == nil
+            _firstTimeConnecting = _controller.pairedFrameID == nil
 
-            // Do we need to bring up device sheet initially? Do so if no Monocle paired or
+            // Do we need to bring up device sheet initially? Do so if no Frame paired or
             // if somehow already in an update state
             let (showDeviceSheet, deviceSheetType) = decideShowDeviceSheet()
             _showDeviceSheet = showDeviceSheet
             _deviceSheetType = deviceSheetType
         }
-        .onChange(of: _controller.isMonocleConnected) {
+        .onChange(of: _controller.isFrameConnected) {
             // Sync connection state
-            _isMonocleConnected = $0
+            _isFrameConnected = $0
         }
-        .onChange(of: _controller.nearestMonocleID) {
-            // Sync nearest Monocle device ID
-            _monocleWithinPairingRange = $0 != nil
+        .onChange(of: _controller.nearestFrameID) {
+            // Sync nearest Frame device ID
+            _frameWithinPairingRange = $0 != nil
         }
         .onChange(of: _controller.bluetoothEnabled) {
             // Sync Bluetooth state
@@ -142,9 +142,9 @@ struct ContentView: View {
                 _bluetoothEnabled = false
             }
         }
-        .onChange(of: _controller.monocleState) { (value: Controller.MonocleState) in
+        .onChange(of: _controller.frameState) { (value: Controller.FrameState) in
             // Tutorial
-            if _controller.pairedMonocleID == nil {
+            if _controller.pairedFrameID == nil {
                 _firstTimeConnecting = true
             } else if value == .ready && _firstTimeConnecting {
                 // Connected. Do we need to display tutorial?
@@ -176,11 +176,11 @@ struct ContentView: View {
 
     private func decideShowDeviceSheet() -> (Bool, DeviceSheetType) {
         if _settings.pairedDeviceID == nil {
-            // No Monocle pair, show pairing sheet
+            // No Frame pair, show pairing sheet
             return (true, .pairing)
         }
 
-        switch _controller.monocleState {
+        switch _controller.frameState {
         case .notReady:
             return (false, .pairing)    // don't show pairing sheet if disconnected but paired
         case .updatingFirmware:
@@ -193,15 +193,15 @@ struct ContentView: View {
     }
 
     private func isUpdating() -> Bool {
-        return _controller.monocleState == .updatingFirmware || _controller.monocleState == .updatingFPGA
+        return _controller.frameState == .updatingFirmware || _controller.frameState == .updatingFPGA
     }
 
     private func displayTutorialInChatWindow() async throws {
         let messages: [(pause: Float, image: UIImage?, text: String)] = [
             ( pause: 2, image: nil, text: "Hi, I'm Noa. Let's show you around 🙂" ),
-            ( pause: 5, image: UIImage(named: "Tutorial_2"), text: "Tap either of the touch pads and speak.\n\nAsk me any question, and I'll respond directly on your Monocle." ),
+            ( pause: 5, image: UIImage(named: "Tutorial_2"), text: "Tap either of the touch pads and speak.\n\nAsk me any question, and I'll respond directly on your Frame." ),
             ( pause: 5, image: UIImage(named: "Tutorial_3"), text: "I can also translate whatever I hear into English.\n\nToggle the translator mode from the menu like so." ),
-            ( pause: 5, image: UIImage(named: "Tutorial_4"), text: "Did you know that I'm a fantastic artist? Tap then hold, and Monocle will take a picture before listening.\n\nAsk me how to change the image, and I'll return back a new image right here in the chat." ),
+            ( pause: 5, image: UIImage(named: "Tutorial_4"), text: "Did you know that I'm a fantastic artist? Tap then hold, and Frame will take a picture before listening.\n\nAsk me how to change the image, and I'll return back a new image right here in the chat." ),
             ( pause: 0, image: nil, text: "Looks like you're all set!\n\nGo ahead. Ask me anything you'd like ☺️" )
         ]
 
