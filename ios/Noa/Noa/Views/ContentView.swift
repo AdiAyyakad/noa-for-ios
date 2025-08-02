@@ -12,10 +12,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject private var _settings: Settings
-    private let _chatMessageStore: ChatMessageStore
     @ObservedObject private var _controller: Controller
-
-    private var _tutorialTask: Task<(), Error>?
 
     /// Frame state (as reported by Controller)
     @State private var _isFrameConnected = false
@@ -33,62 +30,25 @@ struct ContentView: View {
     /// Update percentage
     @State private var _updateProgressPercent: Int = 0
 
-    /// First time connected? If device was ever in unpaired state, this flag is set and a tutorial is displayed upon successful pairing.
-    @State private var _firstTimeConnecting = false
-
-    /// Translation mode state
-    @State private var _mode: ChatGPT.Mode = .assistant
-
     var body: some View {
         VStack {
-            if _showDeviceSheet {
-                // This view shown until 1) device becomes paired or 2) forcible dismissed by
-                // _showPairingView = false
-                DeviceScreenView(
-                    showDeviceSheet: $_showDeviceSheet,
-                    deviceSheetType: $_deviceSheetType,
-                    frameWithinPairingRange: $_frameWithinPairingRange,
-                    updateProgressPercent: $_updateProgressPercent,
-                    onConnectPressed: { [weak _controller] in
-                        _controller?.connectToNearest()
-                    }
-                )
-                .onAppear {
-                    // Delay a moment before enabling Bluetooth scanning so we actually see
-                    // the pairing dialog. Also ensure that by the time this callback fires,
-                    // the user has not just aborted the procedure. Note this is called each
-                    // time view appears.
-                    if !_bluetoothEnabled {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            if _showDeviceSheet {
-                                _bluetoothEnabled = true
-                            }
-                        }
-                    }
+            // Always show device management interface
+            DeviceScreenView(
+                showDeviceSheet: $_showDeviceSheet,
+                deviceSheetType: $_deviceSheetType,
+                frameWithinPairingRange: $_frameWithinPairingRange,
+                updateProgressPercent: $_updateProgressPercent,
+                onConnectPressed: { [weak _controller] in
+                    _controller?.connectToNearest()
                 }
-            } else {
-                ChatView(
-                    isFrameConnected: $_isFrameConnected,
-                    bluetoothEnabled: $_bluetoothEnabled,
-                    showPairingView: $_showDeviceSheet,
-                    mode: $_mode,
-                    onTextSubmitted: { [weak _controller] (query: String) in
-                        _controller?.submitQuery(query: query)
-                    },
-                    onClearChatButtonPressed: { [weak _controller] in
-                        _controller?.clearHistory()
-                    }
-                )
-                .onAppear {
-                    // If this view became active and we are paired, ensure we enable Bluetooth
-                    // because it is disabled initially. When app first loads, even with a paired
-                    // device, need to explicitly enabled.
-                    if _settings.pairedDeviceID != nil {
+            )
+            .onAppear {
+                // Enable Bluetooth scanning when view appears
+                if !_bluetoothEnabled {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                         _bluetoothEnabled = true
                     }
                 }
-                .environmentObject(_chatMessageStore)
-                .environmentObject(_settings)
             }
         }
         .onAppear {
@@ -96,10 +56,8 @@ struct ContentView: View {
             _isFrameConnected = _controller.isFrameConnected
             _frameWithinPairingRange = _controller.nearestFrameID != nil
             _bluetoothEnabled = _controller.bluetoothEnabled
-            _firstTimeConnecting = _controller.pairedFrameID == nil
 
-            // Do we need to bring up device sheet initially? Do so if no Frame paired or
-            // if somehow already in an update state
+            // Always show device management interface 
             let (showDeviceSheet, deviceSheetType) = decideShowDeviceSheet()
             _showDeviceSheet = showDeviceSheet
             _deviceSheetType = deviceSheetType
@@ -120,41 +78,8 @@ struct ContentView: View {
             // Pass through to controller (will not cause a cycle because we monitor change only)
             _controller.bluetoothEnabled = $0
         }
-        .onChange(of: _showDeviceSheet) {
-            let dismissed = $0 == false
-
-            // When enabled, update device sheet type
-            if !dismissed {
-                let (_, deviceSheetType) = decideShowDeviceSheet()
-                _deviceSheetType = deviceSheetType
-                return
-            }
-
-            // Cannot dismiss while updating
-            if dismissed && isUpdating() {
-                _showDeviceSheet = true
-                return
-            }
-
-            // Detect when pairing view was dismissed. If we were scanning but did not pair (user
-            // forcibly dismissed us), stop scanning altogether
-            if dismissed && _settings.pairedDeviceID == nil {
-                _bluetoothEnabled = false
-            }
-        }
         .onChange(of: _controller.frameState) { (value: Controller.FrameState) in
-            // Tutorial
-            if _controller.pairedFrameID == nil {
-                _firstTimeConnecting = true
-            } else if value == .ready && _firstTimeConnecting {
-                // Connected. Do we need to display tutorial?
-                Task {
-                    try await displayTutorialInChatWindow()
-                }
-                _firstTimeConnecting = false
-            }
-
-            // Device sheet?
+            // Update device sheet based on frame state
             let (showDeviceSheet, deviceSheetType) = decideShowDeviceSheet()
             _showDeviceSheet = showDeviceSheet
             _deviceSheetType = deviceSheetType
@@ -162,53 +87,28 @@ struct ContentView: View {
         .onChange(of: _controller.updateProgressPercent) {
             _updateProgressPercent = $0
         }
-        .onChange(of: _mode) {
-            // Settings menu may change mode
-            _controller.mode = $0
-        }
     }
 
-    init(settings: Settings, chatMessageStore: ChatMessageStore, controller: Controller) {
+    init(settings: Settings, controller: Controller) {
         _settings = settings
-        _chatMessageStore = chatMessageStore
         _controller = controller
     }
 
     private func decideShowDeviceSheet() -> (Bool, DeviceSheetType) {
         if _settings.pairedDeviceID == nil {
-            // No Frame pair, show pairing sheet
+            // No Frame paired, show pairing sheet
             return (true, .pairing)
         }
 
         switch _controller.frameState {
         case .notReady:
-            return (false, .pairing)    // don't show pairing sheet if disconnected but paired
+            return (true, .pairing)    // show pairing sheet if disconnected
         case .updatingFirmware:
             return (true, .firmwareUpdate)
         case .updatingFPGA:
             return (true, .fpgaUpdate)
         case .ready:
-            return (false, .pairing)    // device is connected and running
-        }
-    }
-
-    private func isUpdating() -> Bool {
-        return _controller.frameState == .updatingFirmware || _controller.frameState == .updatingFPGA
-    }
-
-    private func displayTutorialInChatWindow() async throws {
-        let messages: [(pause: Float, image: UIImage?, text: String)] = [
-            ( pause: 2, image: nil, text: "Hi, I'm Noa. Let's show you around 🙂" ),
-            ( pause: 5, image: UIImage(named: "Tutorial_2"), text: "Tap either of the touch pads and speak.\n\nAsk me any question, and I'll respond directly on your Frame." ),
-            ( pause: 5, image: UIImage(named: "Tutorial_3"), text: "I can also translate whatever I hear into English.\n\nToggle the translator mode from the menu like so." ),
-            ( pause: 5, image: UIImage(named: "Tutorial_4"), text: "Did you know that I'm a fantastic artist? Tap then hold, and Frame will take a picture before listening.\n\nAsk me how to change the image, and I'll return back a new image right here in the chat." ),
-            ( pause: 0, image: nil, text: "Looks like you're all set!\n\nGo ahead. Ask me anything you'd like ☺️" )
-        ]
-
-        for (pause, image, text) in messages {
-            _chatMessageStore.putMessage(Message(text: text, picture: image, participant: .assistant))
-            try Task.checkCancellation()
-            try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
+            return (true, .pairing)    // show device management when connected
         }
     }
 }

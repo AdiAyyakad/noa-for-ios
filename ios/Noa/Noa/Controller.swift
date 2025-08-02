@@ -19,7 +19,6 @@
 //    an async implementation. Probably need to observe new lines / terminating sequences like '>'.
 //
 
-import AVFoundation
 import Combine
 import CoreBluetooth
 import CryptoKit
@@ -54,15 +53,6 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     @Published private(set) var frameState = FrameState.notReady
     @Published private(set) var updateProgressPercent: Int = 0
 
-    public var mode = ChatGPT.Mode.assistant {
-        didSet {
-            if mode != oldValue {
-                // Changed modes, clear context
-                _chatGPT.clearHistory()
-            }
-        }
-    }
-
     // MARK: - Internal State
 
     // Bluetooth communication happens on a background thread
@@ -87,7 +77,6 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
     // App state
     private let _settings: Settings
-    private let _messages: ChatMessageStore
 
     private var _subscribers = Set<AnyCancellable>()
 
@@ -102,29 +91,10 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
     private var _currentFirmwareVersion: String?
     private var _currentFPGAVersion: String?
 
-    private var _audioData = Data()
-    private var _imageData = Data()
-
-    private let _m4aWriter = M4AWriter()
-    private let _whisper = Whisper(configuration: .backgroundData)
-    private let _chatGPT = ChatGPT(configuration: .backgroundData)
-    private let _stableDiffusion = StableDiffusion(configuration: .backgroundData)
-
-    private var _pendingQueryByID: [UUID: String] = [:]
-
-    // Debug audio playback (use setupAudioSession() and playReceivedAudio() on PCM buffer decoded
-    // from Frame)
-    private let _audioEngine = AVAudioEngine()
-    private var _playerNode = AVAudioPlayerNode()
-    private var _audioConverter: AVAudioConverter?
-    private var _playbackFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
-    private let _frameFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: false)!
-
     // MARK: - Public Methods
 
-    init(settings: Settings, messages: ChatMessageStore) {
+    init(settings: Settings) {
         _settings = settings
-        _messages = messages
 
         // Instantiate Bluetooth managers first
         _frameBluetooth = BluetoothManager(
@@ -318,18 +288,6 @@ class Controller: ObservableObject, LoggerDelegate, DFUServiceDelegate, DFUProgr
 
     /// Submit a query from the iOS app directly.
     /// - Parameter query: Query string.
-    public func submitQuery(query: String) {
-        let fakeID = UUID()
-        print("[Controller] Sending iOS query with transcription ID \(fakeID) to ChatGPT: \(query)")
-        submitQuery(query: query, transcriptionID: fakeID)
-    }
-
-    /// Clear chat history, including ChatGPT context window.
-    public func clearHistory() {
-        _messages.clear()
-        _chatGPT.clearHistory()
-    }
-
     // MARK: - Nordic DFU Delegates (Main Queue)
 
     public func logWith(_ level: LogLevel, message: String) {
@@ -859,198 +817,15 @@ private extension Controller {
 
 private extension Controller {
     func onFrameCommand(command: String, data: Data) {
-        if command.starts(with: "ast:") || command.starts(with: "ien:") {
-            // Delete currently stored audio and prepare to receive new audio sample over
-            // multiple packets
-            _audioData.removeAll(keepingCapacity: true)
-
-            if command.starts(with: "ien:") {
-                // Image end command indicates image data complete and prompt on the way
-                print("[Controller] Received complete image buffer (\(_imageData.count) bytes). Awaiting audio next.")
-            } else {
-                // Audio start command means this is *not* an image request, clear image buffer
-                print("[Controller] Received audio start command")
-                _imageData.removeAll(keepingCapacity: true)
-            }
-        } else if command.starts(with: "ist:") {
-            // Delete currently stored image and prepare to receive new image over multiple packets
-            print("[Controller] Received image start command")
-            _imageData.removeAll(keepingCapacity: true)
-        } else if command.starts(with: "dat:") {
-            // Append audio data
-            print("[Controller] Received audio data packet (\(data.count) bytes)")
-            _audioData.append(data)
-        } else if command.starts(with: "idt:") {
-            // Append image data
-            print("[Controler] Received image data packet (\(data.count) bytes)")
-            _imageData.append(data)
-        } else if command.starts(with: "aen:") {
-            // Audio finished, submit for transcription
-            print("[Controller] Received complete audio buffer (\(_audioData.count) bytes)")
-            if _audioData.count.isMultiple(of: 2) {
-                if let pcmBuffer = AVAudioPCMBuffer.fromMonoInt8Data(_audioData, sampleRate: 8000) {
-                    onVoiceReceived(voiceSample: pcmBuffer)
-                } else {
-                    print("[Controller] Error: Unable to convert audio data to PCM buffer")
-                }
-            } else {
-                print("[Controller] Error: Audio buffer is not a multiple of two bytes")
-            }
-        } else if command.starts(with: "pon:") {
-            // Transcript acknowledgment
+        // Simplified command handling - only log what we receive
+        print("[Controller] Received Frame command: \(command) with \(data.count) bytes of data")
+        
+        // For now, just acknowledge any commands to keep Frame responsive
+        if command.starts(with: "pon:") {
+            // Transcript acknowledgment - just log it
             print("[Controller] Received pong (transcription acknowledgment)")
             let uuidStr = String(decoding: data, as: UTF8.self)
-            if let uuid = UUID(uuidString: uuidStr) {
-                onTranscriptionAcknowledged(id: uuid)
-            }
-        }
-    }
-}
-
-// MARK: - User Query Flow
-
-private extension Controller {
-    // Step 1: Voice received from Frame and converted to M4A
-    func onVoiceReceived(voiceSample: AVAudioPCMBuffer) {
-        print("[Controller] Voice received. Converting to M4A...")
-
-        // When in translation mode, we don't perform user transcription
-        printTypingIndicatorToChat(as: mode == .assistant ? .user : .translator)
-
-        // Convert to M4A, then pass to speech transcription
-        _m4aWriter.write(buffer: voiceSample) { [weak self] (fileData: Data?) in
-            guard let self, let fileData else {
-                self?.printErrorToChat("Unable to process audio!", as: .user)
-                return
-            }
-            transcribe(audioFile: fileData, mode: mode)
-        }
-    }
-
-    // Step 2a: Transcribe speech to text using Whisper and send transcription UUID to Frame
-    func transcribe(audioFile fileData: Data, mode: ChatGPT.Mode) {
-        print("[Controller] Transcribing voice...")
-
-        _whisper.transcribe(mode: mode == .assistant ? .transcription : .translation, fileData: fileData, format: .m4a, apiKey: _settings.openAiApiKey) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case let .failure(error):
-                printErrorToChat(error.description, as: .user)
-            case let .success(query):
-                if !_imageData.isEmpty {
-                    // Have image data, perform image generation
-                    generateImage(prompt: query)
-                } else {
-                    // No image data: normal operation (assistant or translator)
-                    switch mode {
-                    case .assistant:
-                        // Store query and send ID to Frame. We need to do this because we cannot perform
-                        // back-to-back network requests in background mode. Frame will reply back with
-                        // the ID, allowing us to perform a ChatGPT request.
-                        let id = UUID()
-                        _pendingQueryByID[id] = query
-                        send(text: "pin:" + id.uuidString, to: _frameBluetooth, on: Self._serialRx)
-                        print("[Controller] Sent transcription ID to Frame: \(id)")
-                    case .translator:
-                        // Translation mode: No more network requests to do. Display translation.
-                        printToChat(query, as: .translator)
-                        print("[Controller] Translation received: \(query)")
-                    }
-                }
-            }
-        }
-    }
-
-    // Step 3: Transcription UUID received, kick off ChatGPT request
-    func onTranscriptionAcknowledged(id: UUID) {
-        // Fetch query
-        guard let query = _pendingQueryByID.removeValue(forKey: id) else {
-            return
-        }
-
-        print("[Controller] Sending transcript \(id) to ChatGPT as query: \(query)")
-
-        submitQuery(query: query, transcriptionID: id)
-    }
-
-    func submitQuery(query: String, transcriptionID id: UUID) {
-        // User message
-        printToChat(query, as: .user)
-
-        // Send to ChatGPT
-        let responder = mode == .assistant ? Participant.assistant : Participant.translator
-        printTypingIndicatorToChat(as: responder)
-        _chatGPT.send(mode: mode, query: query, apiKey: _settings.openAiApiKey, model: _settings.gptModel) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case let .failure(error):
-                self.printErrorToChat(error.description, as: responder)
-            case let .success(response):
-                self.printToChat(response, as: responder)
-                print("[Controller] Received response from ChatGPT for \(id): \(response)")
-            }
-        }
-    }
-
-    func generateImage(prompt: String) {
-        // Frame will not receive anything, tell it to go back to idle (ick = image ack)
-        send(text: "ick:", to: _frameBluetooth, on: Self._serialRx)
-
-        // Attempt to decode image
-        guard let picture = UIImage(data: _imageData) else {
-            printErrorToChat("Photo could not be decoded", as: .user)
-            return
-        }
-
-        // Display image as user
-        printToChat(prompt, picture: picture, as: .user)
-
-        // Submit to Stable Diffusion
-        printTypingIndicatorToChat(as: .assistant)
-        _stableDiffusion.imageToImage(
-            image: picture,
-            prompt: prompt,
-            model: _settings.stableDiffusionModel,
-            strength: _settings.imageStrength,
-            guidance: _settings.imageGuidance,
-            apiKey: _settings.stabilityAiApiKey
-        ) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .failure(let error):
-                printErrorToChat(error.description, as: .assistant)
-            case .success(let image):
-                let picture = image.centerCropped(to: CGSize(width: 640, height: 400)) // crop out the letterboxing we had to introduce and return to original size
-                printToChat(prompt, picture: picture, as: .assistant)
-                //TODO: this does not seem to work yet
-                //self?.sendImageToFrameInChunks(image: picture)
-            }
-        }
-    }
-}
-
-// MARK: - Result Output
-
-private extension Controller {
-    func printErrorToChat(_ message: String, as participant: Participant) {
-        _messages.putMessage(Message(text: message, isError: true, participant: participant))
-
-        // Send all error messages to Frame
-        sendTextToFrameInChunks(text: message, isError: true)
-
-        print("[Controller] Error printed: \(message)")
-    }
-
-    func printTypingIndicatorToChat(as participant: Participant) {
-        _messages.putMessage(Message(text: "", typingInProgress: true, participant: participant))
-    }
-
-    func printToChat(_ text: String, picture: UIImage? = nil, as participant: Participant) {
-        _messages.putMessage(Message(text: text, picture: picture, participant: participant))
-
-        if participant != .user {
-            // Send AI response to Frame
-            sendTextToFrameInChunks(text: text, isError: false)
+            print("[Controller] Transcription ID: \(uuidStr)")
         }
     }
 }

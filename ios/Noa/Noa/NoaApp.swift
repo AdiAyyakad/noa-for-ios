@@ -11,20 +11,18 @@ import SwiftUI
 @main
 struct NoaApp: App {
     private let _settings = Settings()
-    private let _chatMessageStore = ChatMessageStore()
     private var _controller: Controller!
 
     var body: some Scene {
         WindowGroup {
             ContentView(
                 settings: _settings,
-                chatMessageStore: _chatMessageStore,
                 controller: _controller
             )
         }
     }
 
     init() {
-        _controller = Controller(settings: _settings, messages: _chatMessageStore)
+        _controller = Controller(settings: _settings)
     }
 }
