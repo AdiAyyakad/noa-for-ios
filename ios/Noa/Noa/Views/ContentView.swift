@@ -38,10 +38,12 @@ struct ContentView: View {
                 deviceSheetType: $_deviceSheetType,
                 frameWithinPairingRange: $_frameWithinPairingRange,
                 updateProgressPercent: $_updateProgressPercent,
+                bluetoothEnabled: $_bluetoothEnabled,
                 onConnectPressed: { [weak _controller] in
                     _controller?.connectToNearest()
                 }
             )
+            .environmentObject(_settings)
             .onAppear {
                 // Enable Bluetooth scanning when view appears
                 if !_bluetoothEnabled {
