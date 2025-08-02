@@ -10,29 +10,12 @@ import SwiftUI
 struct SettingsMenuView: View {
     @EnvironmentObject private var _settings: Settings
 
-    @Binding var popUpApiBox: Bool
     @Binding var showPairingView: Bool
     @Binding var bluetoothEnabled: Bool
-    @Binding var mode: ChatGPT.Mode
 
     var body: some View {
         Menu {
             let isFramePaired = _settings.pairedDeviceID != nil
-
-            Button {
-                popUpApiBox = true
-            } label: {
-                Label("Manage API Keys", systemImage: "person.circle")
-            }
-
-            Toggle(isOn: .init {
-                mode == .translator
-            } set: { newValue in
-                mode = newValue ? .translator : .assistant
-            }) {
-                Label("Translate", systemImage: "globe")
-            }
-            .toggleStyle(.button)
 
             Button(role: isFramePaired ? .destructive : .none) {
                 if isFramePaired {
@@ -60,10 +43,8 @@ struct SettingsMenuView: View {
 struct SettingsMenuView_Previews: PreviewProvider {
     static var previews: some View {
         SettingsMenuView(
-            popUpApiBox: .constant(false),
             showPairingView: .constant(false),
-            bluetoothEnabled: .constant(true),
-            mode: .constant(.assistant)
+            bluetoothEnabled: .constant(true)
         )
             .environmentObject(Settings())
     }

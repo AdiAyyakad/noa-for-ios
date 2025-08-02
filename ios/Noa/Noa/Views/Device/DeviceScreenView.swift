@@ -24,10 +24,13 @@ enum DeviceSheetType {
 }
 
 struct DeviceScreenView: View {
+    @EnvironmentObject private var _settings: Settings
+    
     @Binding var showDeviceSheet: Bool
     @Binding var deviceSheetType: DeviceSheetType
     @Binding var frameWithinPairingRange: Bool
     @Binding var updateProgressPercent: Int
+    @Binding var bluetoothEnabled: Bool
     @Environment(\.openURL) var openURL
 
     private let _onConnectPressed: (() -> Void)?
@@ -94,11 +97,12 @@ struct DeviceScreenView: View {
         .ignoresSafeArea(.all)
     }
 
-    init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, frameWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, onConnectPressed: (() -> Void)?) {
+    init(showDeviceSheet: Binding<Bool>, deviceSheetType: Binding<DeviceSheetType>, frameWithinPairingRange: Binding<Bool>, updateProgressPercent: Binding<Int>, bluetoothEnabled: Binding<Bool>, onConnectPressed: (() -> Void)?) {
         _showDeviceSheet = showDeviceSheet
         _deviceSheetType = deviceSheetType
         _frameWithinPairingRange = frameWithinPairingRange
         _updateProgressPercent = updateProgressPercent
+        _bluetoothEnabled = bluetoothEnabled
         _onConnectPressed = onConnectPressed
     }
 }
@@ -110,7 +114,9 @@ struct DeviceScreenView_Previews: PreviewProvider {
             deviceSheetType: .constant(.firmwareUpdate),
             frameWithinPairingRange: .constant(false),
             updateProgressPercent: .constant(50),
+            bluetoothEnabled: .constant(true),
             onConnectPressed: { print("Connect pressed") }
         )
+        .environmentObject(Settings())
     }
 }
